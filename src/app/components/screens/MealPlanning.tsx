@@ -185,4 +185,47 @@ function MealCard({ title, time, meal }: { title: string; time: string; meal?: {
       <div className="bg-white rounded-2xl shadow-lg overflow-hidden">
         <div className="p-4">
           <h3 className="font-semibold text-gray-900 mb-1">{title}</h3>
-          <p className="text-xs text-gray-600 mb-3">{time
+          <p className="text-xs text-gray-600 mb-3">{time}</p>
+          <p className="text-sm text-gray-500">Chưa có dữ liệu bữa ăn cho khung giờ này.</p>
+        </div>
+      </div>
+    );
+  }
+
+  return (
+    <div className="bg-white rounded-2xl shadow-lg overflow-hidden">
+      <div className="flex gap-4 p-4">
+        <div className="relative w-24 h-24 flex-shrink-0 rounded-xl overflow-hidden">
+          <ImageWithFallback src={meal.image} alt={meal.name} className="w-full h-full object-cover" />
+        </div>
+        <div className="flex-1">
+          <div className="flex items-start justify-between mb-2">
+            <div>
+              <h3 className="font-semibold text-gray-900">{title}</h3>
+              <p className="text-xs text-gray-600">{time}</p>
+            </div>
+            <span className="bg-green-100 text-green-700 px-2 py-1 rounded-lg text-xs font-medium">
+              {meal.calories} kcal
+            </span>
+          </div>
+          <p className="text-sm text-gray-700 mb-2">{meal.name}</p>
+          <button className="text-green-600 text-xs font-medium hover:text-green-700">Xem công thức →</button>
+        </div>
+      </div>
+    </div>
+  );
+}
+
+function NutritionBar({ label, value, color }: { label: string; value: number; color: string }) {
+  return (
+    <div>
+      <div className="flex items-center justify-between mb-1">
+        <span className="text-sm text-gray-700">{label}</span>
+        <span className="text-sm font-semibold">{value}%</span>
+      </div>
+      <div className="bg-gray-200 rounded-full h-2 overflow-hidden">
+        <div className={`${color} h-full rounded-full transition-all duration-500`} style={{ width: `${value}%` }} />
+      </div>
+    </div>
+  );
+}
