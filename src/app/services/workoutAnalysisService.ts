@@ -250,6 +250,135 @@ Chỉ trả về JSON.`;
   }
 }
 
+/**
+ * Batch rep analysis: gửi tất cả frame trong 1 rep cho GPT đánh giá
+ */
+export interface RepAnalysisResult {
+  type: "success" | "warning" | "error";
+  repNumber: number;
+  message: string;
+  frameNotes: string[];
+  suggestions: string[];
+  overallScore: number; // 0-100
+}
+
+const REP_ANALYSIS_PROMPT = `Bạn nhận được nhiều ảnh chụp liên tiếp trong 1 rep của bài tập gym.
+Mỗi ảnh có khung xương (đường xanh lá) overlay lên người tập.
+Các ảnh theo thứ tự thời gian từ đầu đến cuối rep.
+
+Phân tích toàn bộ rep này và trả về CHỈ JSON:
+{
+  "type": "success" | "warning" | "error",
+  "message": "Đánh giá tổng thể 1 câu tiếng Việt",
+  "frameNotes": ["Nhận xét frame 1", "Nhận xét frame 2", ...],
+  "suggestions": ["Gợi ý chỉnh form 1", "Gợi ý 2"],
+  "overallScore": số 0-100
+}
+
+Quy tắc:
+- success (80-100): Form tốt, không cần chỉnh nhiều
+- warning (40-79): Cần chỉnh sửa
+- error (0-39): Form sai nghiêm trọng hoặc không thấy người
+- frameNotes phải có đúng số phần tử = số ảnh
+- PHẢI viết tiếng Việt`;
+
+export async function analyzeRepBatch(
+  frames: string[],
+  exerciseName: string,
+  repNumber: number,
+): Promise<ApiResponse<RepAnalysisResult>> {
+  if (!TROLLLLM_API_KEY || TROLLLLM_API_KEY === "your_trollllm_api_key_here") {
+    return {
+      data: null,
+      error: "API key chưa cấu hình",
+      meta: { requestId: crypto.randomUUID(), status: 401, simulated: true, retryable: false, latencyMs: 0 },
+    };
+  }
+
+  try {
+    const startTime = Date.now();
+
+    // Shrink all frames
+    const smallFrames = await Promise.all(frames.map((f) => shrinkImage(f, 320)));
+
+    // Build content: prompt + all images
+    const content: Array<{ type: string; text?: string; image_url?: { url: string; detail: string } }> = [
+      { type: "text", text: `${REP_ANALYSIS_PROMPT}\n\nBài tập: ${exerciseName}. Rep số: ${repNumber}. Số ảnh: ${frames.length}.` },
+    ];
+
+    for (let i = 0; i < smallFrames.length; i++) {
+      content.push({
+        type: "image_url",
+        image_url: { url: smallFrames[i], detail: "low" },
+      });
+    }
+
+    const response = await fetch(TROLLLLM_API_URL, {
+      method: "POST",
+      headers: {
+        "Content-Type": "application/json",
+        "Authorization": `Bearer ${TROLLLLM_API_KEY}`,
+      },
+      body: JSON.stringify({
+        model: FAST_MODEL,
+        max_tokens: 500,
+        temperature: 0.3,
+        messages: [{ role: "user", content }],
+      }),
+    });
+
+    if (!response.ok) {
+      const err = await response.json().catch(() => ({ error: { message: "Unknown" } }));
+      throw new Error(err.error?.message || `HTTP ${response.status}`);
+    }
+
+    const result = await response.json();
+    const text = result.choices?.[0]?.message?.content || "";
+    const parsed = parseRepResponse(text, repNumber);
+
+    if (!parsed) {
+      return {
+        data: null,
+        error: "Không parse được response",
+        meta: { requestId: crypto.randomUUID(), status: 422, simulated: true, retryable: true, latencyMs: Date.now() - startTime },
+      };
+    }
+
+    return {
+      data: parsed,
+      error: null,
+      meta: { requestId: crypto.randomUUID(), status: 200, simulated: true, retryable: false, latencyMs: Date.now() - startTime },
+    };
+  } catch (error) {
+    return {
+      data: null,
+      error: `Lỗi phân tích rep: ${error instanceof Error ? error.message : "Unknown"}`,
+      meta: { requestId: crypto.randomUUID(), status: 500, simulated: true, retryable: true, latencyMs: 0 },
+    };
+  }
+}
+
+function parseRepResponse(text: string, repNumber: number): RepAnalysisResult | null {
+  try {
+    let json = text.trim();
+    if (json.startsWith("```json")) json = json.slice(7);
+    else if (json.startsWith("```")) json = json.slice(3);
+    if (json.endsWith("```")) json = json.slice(0, -3);
+    json = json.trim();
+    const p = JSON.parse(json);
+    return {
+      type: ["success", "warning", "error"].includes(p.type) ? p.type : "warning",
+      repNumber,
+      message: p.message || "Không có nhận xét",
+      frameNotes: Array.isArray(p.frameNotes) ? p.frameNotes : [],
+      suggestions: Array.isArray(p.suggestions) ? p.suggestions : [],
+      overallScore: typeof p.overallScore === "number" ? Math.min(100, Math.max(0, p.overallScore)) : 50,
+    };
+  } catch {
+    return null;
+  }
+}
+
 function parseAnalysisResponse(text: string): FormAnalysisResult | null {
   try {
     let jsonText = text.trim();

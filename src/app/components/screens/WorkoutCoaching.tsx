@@ -1,5 +1,5 @@
 import { useState, useEffect, useRef, useCallback } from "react";
-import { Play, Pause, RotateCcw, AlertCircle, CheckCircle2, Camera, Timer, SwitchCamera, Sparkles, MessageCircle } from "lucide-react";
+import { Play, Pause, RotateCcw, AlertCircle, CheckCircle2, Camera, Timer, SwitchCamera, Sparkles } from "lucide-react";
 import type { WorkoutPlan } from "../../lib/models";
 import {
   computeWorkoutMetrics,
@@ -7,8 +7,9 @@ import {
   markTodaySession,
   toggleExerciseStatus,
 } from "../../services/workoutService";
-import { analyzeForm, type FormAnalysisResult } from "../../services/workoutAnalysisService";
-import { usePoseDetection, createCompositeImage } from "../../hooks/usePoseDetection";
+import { analyzeRepBatch, type RepAnalysisResult } from "../../services/workoutAnalysisService";
+import { usePoseDetection, type PoseLandmark } from "../../hooks/usePoseDetection";
+import { useRepCapture } from "../../hooks/useRepCapture";
 import { PoseOverlay } from "../PoseOverlay";
 
 export function WorkoutCoaching() {
@@ -18,8 +19,8 @@ export function WorkoutCoaching() {
   const [savingAction, setSavingAction] = useState(false);
   const [error, setError] = useState<string | null>(null);
   const [elapsedSeconds, setElapsedSeconds] = useState(0);
-  const [currentFeedback, setCurrentFeedback] = useState<FormAnalysisResult | null>(null);
-  const [feedbackVisible, setFeedbackVisible] = useState(true);
+  const [repFeedback, setRepFeedback] = useState<RepAnalysisResult | null>(null);
+  const [feedbackVisible, setFeedbackVisible] = useState(false);
   const [cameraReady, setCameraReady] = useState(false);
   const [facingMode, setFacingMode] = useState<"user" | "environment">("user");
   const [isAnalyzing, setIsAnalyzing] = useState(false);
@@ -27,8 +28,9 @@ export function WorkoutCoaching() {
   const [repCount, setRepCount] = useState(0);
   const [poseEnabled, setPoseEnabled] = useState(true);
   const [voiceEnabled, setVoiceEnabled] = useState(true);
-  const [currentLandmarks, setCurrentLandmarks] = useState<any[] | null>(null);
+  const [currentLandmarks, setCurrentLandmarks] = useState<PoseLandmark[] | null>(null);
   const [videoDimensions, setVideoDimensions] = useState({ width: 640, height: 480 });
+  const landmarksRef = useRef<PoseLandmark[] | null>(null);
 
   // Text-to-speech using Web Speech API
   const speakFeedback = useCallback((text: string) => {
@@ -55,8 +57,6 @@ export function WorkoutCoaching() {
     }
   }, [voiceEnabled]);
   
-  const canvasRef = useRef<HTMLCanvasElement>(null);
-
   const videoRef = useRef<HTMLVideoElement>(null);
   const streamRef = useRef<MediaStream | null>(null);
   const timerRef = useRef<ReturnType<typeof setInterval> | null>(null);
@@ -97,6 +97,7 @@ export function WorkoutCoaching() {
     videoRef,
     onPoseDetected: (pose) => {
       setCurrentLandmarks(pose.landmarks);
+      landmarksRef.current = pose.landmarks;
       if (videoRef.current) {
         setVideoDimensions({
           width: videoRef.current.videoWidth || 640,
@@ -104,6 +105,18 @@ export function WorkoutCoaching() {
         });
       }
     },
+  });
+
+  // Get active exercise name
+  const activeExercise = plan?.exercises.find(e => e.status === "active") || plan?.exercises.find(e => e.status === "pending");
+  const exerciseName = activeExercise?.name || "Squat";
+
+  // Rep-based capture
+  const { config: repConfig, currentRep, frameCount, completedRep, consumeCompletedRep, isCapturing } = useRepCapture({
+    enabled: isWorkoutActive && aiEnabled && poseEnabled,
+    exerciseName,
+    videoRef,
+    landmarksRef,
   });
 
   useEffect(() => {
@@ -138,83 +151,36 @@ export function WorkoutCoaching() {
     return () => { if (timerRef.current) clearInterval(timerRef.current); };
   }, [isWorkoutActive]);
 
-  // AI Analysis Loop — fires next request as soon as previous finishes
-  const analyzingRef = useRef(false);
-  const aiLoopActiveRef = useRef(false);
-  
+  // When a rep completes, send all frames to GPT for batch analysis
   useEffect(() => {
-    aiLoopActiveRef.current = isWorkoutActive && aiEnabled;
-    
-    if (!aiLoopActiveRef.current) return;
-    
-    let cancelled = false;
-    
-    const loop = async () => {
-      while (!cancelled && aiLoopActiveRef.current) {
-        if (analyzingRef.current || !videoRef.current) {
-          await new Promise(r => setTimeout(r, 500));
-          continue;
+    if (!completedRep || isAnalyzing) return;
+
+    const analyze = async () => {
+      setIsAnalyzing(true);
+      try {
+        const rep = consumeCompletedRep();
+        if (!rep) return;
+
+        setRepCount(rep.repNumber);
+
+        const result = await analyzeRepBatch(rep.frames, exerciseName, rep.repNumber);
+
+        if (result.data) {
+          setRepFeedback(result.data);
+          setFeedbackVisible(true);
+          speakFeedback(result.data.message);
+          // Auto-hide after 8 seconds
+          setTimeout(() => setFeedbackVisible(false), 8000);
         }
-        
-        analyzingRef.current = true;
-        setIsAnalyzing(true);
-        
-        try {
-          const video = videoRef.current;
-          
-          // Create composite image with pose overlay if available
-          let imageData: string;
-          
-          if (currentLandmarks && video.videoWidth > 0) {
-            imageData = createCompositeImage(video, currentLandmarks, POSE_CONNECTIONS);
-          } else if (canvasRef.current) {
-            const canvas = canvasRef.current;
-            canvas.width = video.videoWidth || 640;
-            canvas.height = video.videoHeight || 480;
-            const ctx = canvas.getContext("2d");
-            if (ctx) {
-              ctx.drawImage(video, 0, 0);
-              imageData = canvas.toDataURL("image/jpeg", 0.5);
-            } else {
-              imageData = "";
-            }
-          } else {
-            imageData = "";
-          }
-          
-          if (imageData) {
-            const activeExercise = plan?.exercises.find(e => e.status === "active") || plan?.exercises.find(e => e.status === "pending");
-            
-            const result = await analyzeForm(imageData, activeExercise?.name);
-            
-            if (result.data && !cancelled) {
-              setCurrentFeedback(result.data);
-              setFeedbackVisible(true);
-              if (result.data.repCount && result.data.repCount > repCount) {
-                setRepCount(result.data.repCount);
-              }
-              // Read feedback aloud
-              speakFeedback(result.data.message);
-              // Auto-hide after 5 seconds
-              setTimeout(() => { if (!cancelled) setFeedbackVisible(false); }, 5000);
-            }
-          }
-        } catch (err) {
-          console.error("Analysis error:", err);
-        } finally {
-          analyzingRef.current = false;
-          setIsAnalyzing(false);
-        }
-        
-        // Wait 3s before next analysis
-        await new Promise(r => setTimeout(r, 3000));
+      } catch (err) {
+        console.error("Rep analysis error:", err);
+      } finally {
+        setIsAnalyzing(false);
       }
     };
-    
-    loop();
-    
-    return () => { cancelled = true; };
-  }, [isWorkoutActive, aiEnabled]);
+
+    analyze();
+  }, [completedRep]);
 
   const metrics = plan ? computeWorkoutMetrics(plan) : null;
 
@@ -347,36 +313,58 @@ export function WorkoutCoaching() {
             </div>
           </div>
 
-          {/* AI Feedback Message Box */}
-          {isWorkoutActive && currentFeedback && feedbackVisible && (
-            <div className={`mx-3 -mt-1 mb-1 rounded-2xl p-3 ${
-              currentFeedback.type === "success"
+          {/* Rep Capture Status */}
+          {isWorkoutActive && aiEnabled && isCapturing && (
+            <div className="mx-3 -mt-1 mb-1 bg-slate-50 border border-slate-200 rounded-2xl p-2.5">
+              <div className="flex items-center justify-between text-xs text-slate-600">
+                <span>Rep {currentRep} · {exerciseName}</span>
+                <span className="font-mono">{frameCount}/{repConfig.framesPerRep} frames</span>
+              </div>
+              <div className="mt-1.5 h-1.5 bg-slate-200 rounded-full overflow-hidden">
+                <div
+                  className="h-full bg-blue-500 rounded-full transition-all duration-300"
+                  style={{ width: `${(frameCount / repConfig.framesPerRep) * 100}%` }}
+                />
+              </div>
+              {isAnalyzing && (
+                <p className="text-[10px] text-orange-500 mt-1 animate-pulse">Đang phân tích rep {repCount}...</p>
+              )}
+            </div>
+          )}
+
+          {/* Rep Feedback */}
+          {isWorkoutActive && repFeedback && feedbackVisible && (
+            <div className={`mx-3 mt-1 mb-1 rounded-2xl p-3 ${
+              repFeedback.type === "success"
                 ? "bg-emerald-50 border border-emerald-200"
-                : currentFeedback.type === "error"
+                : repFeedback.type === "error"
                 ? "bg-red-50 border border-red-200"
                 : "bg-amber-50 border border-amber-200"
             }`}>
               <div className="flex items-start gap-2">
-                {currentFeedback.type === "success" ? (
+                {repFeedback.type === "success" ? (
                   <CheckCircle2 size={16} className="text-emerald-500 shrink-0 mt-0.5" />
                 ) : (
                   <AlertCircle size={16} className="text-amber-500 shrink-0 mt-0.5" />
                 )}
                 <div className="flex-1 min-w-0">
-                  <p className={`text-sm font-medium ${
-                    currentFeedback.type === "success" ? "text-emerald-700" : "text-amber-700"
+                  <div className="flex items-center justify-between">
+                    <p className="text-xs font-semibold text-slate-500">Rep {repFeedback.repNumber}</p>
+                    <span className={`text-xs font-bold ${
+                      repFeedback.overallScore >= 80 ? "text-emerald-600" : repFeedback.overallScore >= 50 ? "text-amber-600" : "text-red-600"
+                    }`}>{repFeedback.overallScore}/100</span>
+                  </div>
+                  <p className={`text-sm font-medium mt-0.5 ${
+                    repFeedback.type === "success" ? "text-emerald-700" : "text-amber-700"
                   }`}>
-                    {currentFeedback.message}
+                    {repFeedback.message}
                   </p>
-                  {currentFeedback.suggestions && currentFeedback.suggestions.length > 0 && (
-                    <div className="mt-1 space-y-0.5">
-                      {currentFeedback.suggestions.slice(0, 2).map((s, i) => (
-                        <p key={i} className="text-xs text-gray-500">• {s}</p>
+                  {repFeedback.suggestions.length > 0 && (
+                    <div className="mt-1.5 space-y-0.5">
+                      {repFeedback.suggestions.slice(0, 3).map((tip: string, idx: number) => (
+                        <p key={idx} className="text-xs text-gray-500">• {tip}</p>
                       ))}
                     </div>
-                  )}
-                  {currentFeedback.exerciseDetected && (
-                    <p className="text-[10px] text-gray-400 mt-1">Bài tập: {currentFeedback.exerciseDetected}</p>
                   )}
                 </div>
               </div>
@@ -567,17 +555,20 @@ export function WorkoutCoaching() {
           {aiEnabled && (
             <div className="text-xs text-gray-500 mt-3 border-t pt-3">
               <div className="flex items-center gap-2">
-                <div className={`w-2 h-2 rounded-full ${isAnalyzing ? "bg-orange-500 animate-pulse" : "bg-gray-300"}`} />
-                <p>{isAnalyzing ? "Đang phân tích..." : "Sẵn sàng"}</p>
+                <div className={`w-2 h-2 rounded-full ${isAnalyzing ? "bg-orange-500 animate-pulse" : isCapturing ? "bg-blue-500 animate-pulse" : "bg-gray-300"}`} />
+                <p>{isAnalyzing ? "Đang phân tích..." : isCapturing ? "Đang capture..." : "Sẵn sàng"}</p>
               </div>
-              <p className="text-[10px] text-gray-400 mt-1">Chế độ liên tục · gpt-5.4 · Phân tích realtime</p>
+              <p className="text-[10px] text-gray-400 mt-1">
+                {exerciseName}: {repConfig.framesPerRep} frame/{repConfig.repDurationSec}s mỗi rep · gpt-5.4
+              </p>
+              <p className="text-[10px] text-gray-400">
+                Interval: {repConfig.captureIntervalMs}ms · Rep: {repCount}
+              </p>
             </div>
           )}
         </div>
       </div>
 
-      {/* Hidden canvas for snapshot capture */}
-      <canvas ref={canvasRef} className="hidden" />
     </div>
   );
 }
