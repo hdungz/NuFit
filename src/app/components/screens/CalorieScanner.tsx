@@ -1,9 +1,11 @@
-import { Camera, Upload, CheckCircle2, Sparkles, X, RotateCcw, SwitchCamera } from "lucide-react";
+import { Camera, Upload, CheckCircle2, Sparkles, X, RotateCcw, SwitchCamera, Check, PlusCircle } from "lucide-react";
 import { useCallback, useEffect, useRef, useState } from "react";
 import { Link } from "react-router";
-import type { ScanResult } from "../../lib/models";
-import { scanFoodFromCamera, saveScanToDiary } from "../../services/scannerService";
+import type { ScanResult, MealTag } from "../../lib/models";
+import { scanFoodFromCamera } from "../../services/scannerService";
+import { addMeal } from "../../services/mealService";
 import { readAppData } from "../../lib/storage";
+import { getLocalDateKey } from "../../lib/utils";
 
 type ScanState = "camera" | "analyzing" | "result";
 
@@ -14,6 +16,8 @@ export function CalorieScanner() {
   const [saving, setSaving] = useState(false);
   const [errorMessage, setErrorMessage] = useState<string | null>(null);
   const [successMessage, setSuccessMessage] = useState<string | null>(null);
+  const [selectedItems, setSelectedItems] = useState<Set<number>>(new Set());
+  const [savedItems, setSavedItems] = useState<Set<number>>(new Set());
   const [capturedImage, setCapturedImage] = useState<string | null>(null);
   const [cameraReady, setCameraReady] = useState(false);
   const [analyzeProgress, setAnalyzeProgress] = useState(0);
@@ -133,17 +137,84 @@ export function CalorieScanner() {
     setScanState("result");
   };
 
-  const onSaveToDiary = async () => {
-    if (!scanResult || saving) return;
+  const toggleItem = (index: number) => {
+    setSelectedItems(prev => {
+      const next = new Set(prev);
+      if (next.has(index)) next.delete(index);
+      else next.add(index);
+      return next;
+    });
+  };
+
+  const selectAllItems = () => {
+    if (!scanResult?.items) return;
+    const allIndices = scanResult.items.map((_: unknown, i: number) => i);
+    setSelectedItems(new Set(allIndices));
+  };
+
+  const onSaveSelectedToDiary = async () => {
+    if (!scanResult || saving || selectedItems.size === 0) return;
     setSaving(true);
-    const result = await saveScanToDiary(scanResult);
-    setSaving(false);
-    if (result.error) {
-      setErrorMessage(result.error);
-      return;
-    }
     setErrorMessage(null);
-    setSuccessMessage("Đã lưu vào nhật ký bữa ăn!");
+
+    const now = new Date();
+    const time = now.toLocaleTimeString("vi-VN", { hour: "2-digit", minute: "2-digit" });
+    const mealType: MealTag = now.getHours() < 11 ? "Sáng" : now.getHours() < 17 ? "Trưa" : "Tối";
+    const items = scanResult.items || [];
+    const newSaved = new Set(savedItems);
+    let lastError: string | null = null;
+
+    if (items.length > 0) {
+      // Save each selected item individually
+      for (const idx of selectedItems) {
+        if (savedItems.has(idx)) continue;
+        const item = items[idx];
+        if (!item) continue;
+        const result = await addMeal({
+          date: getLocalDateKey(now),
+          time,
+          name: item.name,
+          calories: Math.round(item.calories || 0),
+          proteinGram: Math.round(item.proteinGram || 0),
+          carbsGram: Math.round(item.carbsGram || 0),
+          fatGram: Math.round(item.fatGram || 0),
+          tags: [mealType, "Việt Nam"],
+          image: capturedImage || scanResult.image || "",
+          source: "scanner",
+        });
+        if (result.error) {
+          lastError = result.error;
+        } else {
+          newSaved.add(idx);
+        }
+      }
+    } else {
+      // No items array — save as single entry
+      const result = await addMeal({
+        date: getLocalDateKey(now),
+        time,
+        name: scanResult.foodName,
+        calories: scanResult.totalCalories,
+        proteinGram: scanResult.proteinGram,
+        carbsGram: scanResult.carbsGram,
+        fatGram: scanResult.fatGram,
+        tags: [mealType, "Việt Nam"],
+        image: capturedImage || scanResult.image || "",
+        source: "scanner",
+      });
+      if (result.error) lastError = result.error;
+      else newSaved.add(-1);
+    }
+
+    setSavedItems(newSaved);
+    setSaving(false);
+
+    if (lastError) {
+      setErrorMessage(lastError);
+    } else {
+      const count = newSaved.size - savedItems.size;
+      setSuccessMessage(`Đã thêm ${count} món vào nhật ký!`);
+    }
   };
 
   const resetScanner = () => {
@@ -152,6 +223,8 @@ export function CalorieScanner() {
     setScanState("camera");
     setSuccessMessage(null);
     setErrorMessage(null);
+    setSelectedItems(new Set());
+    setSavedItems(new Set());
     void startCamera();
   };
 
@@ -316,27 +389,67 @@ export function CalorieScanner() {
                 </div>
               </div>
 
-              {/* Multiple food items list */}
+              {/* Selectable food items */}
               {scanResult.items && scanResult.items.length > 0 && (
                 <div className="bg-slate-50 rounded-2xl p-4 mb-4">
-                  <h4 className="text-sm font-semibold text-slate-700 mb-3">Các món đã nhận diện</h4>
-                  <div className="space-y-3">
-                    {scanResult.items.map((item, index) => (
-                      <div key={index} className="bg-white rounded-xl p-3 shadow-sm">
-                        <div className="flex items-start justify-between">
-                          <div className="flex-1 min-w-0">
-                            <p className="font-semibold text-sm text-slate-800">{item.name}</p>
-                            <p className="text-xs text-gray-500">{item.quantity} · ~{item.estimatedWeightGrams}g</p>
+                  <div className="flex items-center justify-between mb-3">
+                    <h4 className="text-sm font-semibold text-slate-700">Chọn món thêm vào nhật ký</h4>
+                    <button
+                      onClick={selectAllItems}
+                      className="text-xs text-pink-600 font-medium active:scale-95 transition-transform"
+                    >
+                      Chọn tất cả
+                    </button>
+                  </div>
+                  <div className="space-y-2">
+                    {scanResult.items.map((item: { name: string; quantity: string; estimatedWeightGrams: number; calories: number; proteinGram: number; carbsGram: number; fatGram: number }, index: number) => {
+                      const isSelected = selectedItems.has(index);
+                      const isSaved = savedItems.has(index);
+                      return (
+                        <button
+                          key={index}
+                          onClick={() => !isSaved && toggleItem(index)}
+                          disabled={isSaved}
+                          className={`w-full text-left rounded-xl p-3 shadow-sm transition-all active:scale-[0.98] ${
+                            isSaved
+                              ? "bg-emerald-50 border-2 border-emerald-300"
+                              : isSelected
+                              ? "bg-pink-50 border-2 border-pink-400"
+                              : "bg-white border-2 border-transparent"
+                          }`}
+                        >
+                          <div className="flex items-start gap-2.5">
+                            {/* Checkbox */}
+                            <div className={`w-5 h-5 rounded-md flex items-center justify-center flex-shrink-0 mt-0.5 ${
+                              isSaved
+                                ? "bg-emerald-500"
+                                : isSelected
+                                ? "bg-pink-500"
+                                : "border-2 border-gray-300"
+                            }`}>
+                              {(isSelected || isSaved) && <Check size={12} className="text-white" />}
+                            </div>
+                            <div className="flex-1 min-w-0">
+                              <div className="flex items-start justify-between">
+                                <div className="flex-1 min-w-0">
+                                  <p className="font-semibold text-sm text-slate-800">{item.name}</p>
+                                  <p className="text-xs text-gray-500">{item.quantity} · ~{item.estimatedWeightGrams}g</p>
+                                </div>
+                                <span className="text-sm font-bold text-pink-600 flex-shrink-0 ml-2">{item.calories} kcal</span>
+                              </div>
+                              <div className="flex gap-3 mt-1.5 text-xs text-gray-400">
+                                <span>P: {item.proteinGram}g</span>
+                                <span>C: {item.carbsGram}g</span>
+                                <span>F: {item.fatGram}g</span>
+                              </div>
+                              {isSaved && (
+                                <p className="text-[10px] text-emerald-600 mt-1 font-medium">✓ Đã thêm vào nhật ký</p>
+                              )}
+                            </div>
                           </div>
-                          <span className="text-sm font-bold text-pink-600 flex-shrink-0 ml-2">{item.calories} kcal</span>
-                        </div>
-                        <div className="flex gap-3 mt-2 text-xs text-gray-400">
-                          <span>P: {item.proteinGram}g</span>
-                          <span>C: {item.carbsGram}g</span>
-                          <span>F: {item.fatGram}g</span>
-                        </div>
-                      </div>
-                    ))}
+                        </button>
+                      );
+                    })}
                   </div>
                 </div>
               )}
@@ -368,7 +481,7 @@ export function CalorieScanner() {
               <div className="mb-5">
                 <h4 className="text-sm font-semibold text-slate-700 mb-2">Nguyên liệu tổng hợp</h4>
                 <div className="flex flex-wrap gap-2">
-                  {scanResult.ingredients.slice(0, 10).map((ing, i) => (
+                  {scanResult.ingredients.slice(0, 10).map((ing: string, i: number) => (
                     <span key={i} className="bg-gray-100 text-gray-600 px-3 py-1.5 rounded-full text-xs">
                       {ing}
                     </span>
@@ -384,11 +497,20 @@ export function CalorieScanner() {
               {/* Actions */}
               <div className="flex gap-3">
                 <button
-                  onClick={() => void onSaveToDiary()}
-                  disabled={saving || !!successMessage}
-                  className="flex-1 bg-gradient-to-r from-pink-500 to-violet-600 text-white py-3.5 rounded-2xl font-semibold active:scale-[0.97] transition-transform disabled:opacity-60 shadow-lg shadow-pink-500/20"
+                  onClick={() => void onSaveSelectedToDiary()}
+                  disabled={saving || (selectedItems.size === 0 && !savedItems.has(-1))}
+                  className="flex-1 bg-gradient-to-r from-pink-500 to-violet-600 text-white py-3.5 rounded-2xl font-semibold active:scale-[0.97] transition-transform disabled:opacity-60 shadow-lg shadow-pink-500/20 flex items-center justify-center gap-2"
                 >
-                  {saving ? "Đang lưu..." : successMessage ? "Đã lưu!" : "Lưu vào nhật ký"}
+                  {saving ? (
+                    "Đang lưu..."
+                  ) : selectedItems.size > 0 ? (
+                    <>
+                      <PlusCircle size={18} />
+                      Thêm {selectedItems.size - [...selectedItems].filter(i => savedItems.has(i)).length} món vào nhật ký
+                    </>
+                  ) : (
+                    "Chọn món để thêm"
+                  )}
                 </button>
                 <button
                   onClick={resetScanner}
@@ -400,12 +522,15 @@ export function CalorieScanner() {
 
               {errorMessage && <p className="text-xs mt-3 text-red-500 text-center">{errorMessage}</p>}
               {successMessage && (
-                <Link
-                  to="/food-diary"
-                  className="mt-3 block text-center text-sm text-pink-600 font-medium"
-                >
-                  Xem nhật ký bữa ăn →
-                </Link>
+                <div className="mt-3 text-center">
+                  <p className="text-sm text-emerald-600 font-medium mb-1">{successMessage}</p>
+                  <Link
+                    to="/food-diary"
+                    className="text-sm text-pink-600 font-medium"
+                  >
+                    Xem nhật ký bữa ăn →
+                  </Link>
+                </div>
               )}
             </div>
           </div>
