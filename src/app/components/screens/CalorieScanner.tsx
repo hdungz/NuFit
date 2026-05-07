@@ -1,4 +1,4 @@
-import { Camera, Upload, CheckCircle2, Sparkles, X, RotateCcw } from "lucide-react";
+import { Camera, Upload, CheckCircle2, Sparkles, X, RotateCcw, SwitchCamera } from "lucide-react";
 import { useCallback, useEffect, useRef, useState } from "react";
 import { Link } from "react-router";
 import type { ScanResult } from "../../lib/models";
@@ -17,6 +17,7 @@ export function CalorieScanner() {
   const [capturedImage, setCapturedImage] = useState<string | null>(null);
   const [cameraReady, setCameraReady] = useState(false);
   const [analyzeProgress, setAnalyzeProgress] = useState(0);
+  const [facingMode, setFacingMode] = useState<"user" | "environment">("environment");
 
   const videoRef = useRef<HTMLVideoElement>(null);
   const canvasRef = useRef<HTMLCanvasElement>(null);
@@ -25,9 +26,13 @@ export function CalorieScanner() {
 
   // Start camera
   const startCamera = useCallback(async () => {
+    // Stop existing stream before requesting a new one
+    if (streamRef.current) {
+      streamRef.current.getTracks().forEach((t) => t.stop());
+    }
     try {
       const stream = await navigator.mediaDevices.getUserMedia({
-        video: { facingMode: "environment", width: { ideal: 1280 }, height: { ideal: 720 } },
+        video: { facingMode, width: { ideal: 1280 }, height: { ideal: 720 } },
       });
       streamRef.current = stream;
       if (videoRef.current) {
@@ -48,7 +53,7 @@ export function CalorieScanner() {
       // Camera not available - show upload-only mode
       setCameraReady(false);
     }
-  }, []);
+  }, [facingMode]);
 
   // Stop camera
   const stopCamera = useCallback(() => {
@@ -187,6 +192,7 @@ export function CalorieScanner() {
                 playsInline
                 muted
                 className={`w-full h-full object-cover ${cameraReady ? "block" : "hidden"}`}
+                style={{ transform: facingMode === "user" ? "scaleX(-1)" : "none" }}
               />
 
               {/* Placeholder shown while camera is initialising */}
@@ -217,13 +223,16 @@ export function CalorieScanner() {
             </div>
 
             {/* Camera controls */}
-            <div className="flex items-center justify-center gap-6 py-5 bg-black/90">
+            <div className="flex items-center justify-center gap-6 py-5 bg-black/90 relative">
+              {/* Left: Upload button */}
               <button
                 onClick={() => fileInputRef.current?.click()}
                 className="w-12 h-12 rounded-full bg-white/10 flex items-center justify-center active:scale-90 transition-transform"
               >
                 <Upload size={20} className="text-white" />
               </button>
+
+              {/* Center: Capture button */}
               <button
                 onClick={capturePhoto}
                 disabled={!cameraReady}
@@ -232,7 +241,18 @@ export function CalorieScanner() {
               >
                 <div className="w-16 h-16 rounded-full border-4 border-slate-200" />
               </button>
-              <div className="w-12 h-12" /> {/* spacer */}
+
+              {/* Right: Switch camera button */}
+              {cameraReady ? (
+                <button
+                  onClick={() => setFacingMode(prev => prev === "user" ? "environment" : "user")}
+                  className="w-12 h-12 rounded-full bg-white/10 flex items-center justify-center active:scale-90 transition-transform"
+                >
+                  <SwitchCamera size={20} className="text-white" />
+                </button>
+              ) : (
+                <div className="w-12 h-12" /> /* spacer */
+              )}
             </div>
             <input
               ref={fileInputRef}
@@ -281,24 +301,49 @@ export function CalorieScanner() {
             <div className="p-5">
               {/* Food name + calories */}
               <div className="flex items-start justify-between mb-4">
-                <div>
-                  <h3 className="text-xl font-bold text-slate-800">{scanResult.foodName}</h3>
+                <div className="flex-1 min-w-0">
+                  <h3 className="text-lg font-bold text-slate-800 truncate">{scanResult.foodName}</h3>
                   <div className="flex items-center gap-2 mt-1">
-                    <span className="text-xs text-gray-500">Độ chính xác:</span>
+                    <span className="text-xs text-gray-500">{scanResult.foodCount && scanResult.foodCount > 1 ? `${scanResult.foodCount} món` : "1 món"} · Độ chính xác:</span>
                     <span className="bg-emerald-50 text-emerald-600 px-2 py-0.5 rounded-full text-xs font-semibold">
                       {scanResult.confidence}%
                     </span>
                   </div>
                 </div>
-                <div className="text-right">
+                <div className="text-right flex-shrink-0 ml-3">
                   <p className="text-3xl font-bold text-pink-600">{scanResult.totalCalories}</p>
-                  <p className="text-xs text-gray-400">kcal</p>
+                  <p className="text-xs text-gray-400">kcal tổng</p>
                 </div>
               </div>
 
+              {/* Multiple food items list */}
+              {scanResult.items && scanResult.items.length > 0 && (
+                <div className="bg-slate-50 rounded-2xl p-4 mb-4">
+                  <h4 className="text-sm font-semibold text-slate-700 mb-3">Các món đã nhận diện</h4>
+                  <div className="space-y-3">
+                    {scanResult.items.map((item, index) => (
+                      <div key={index} className="bg-white rounded-xl p-3 shadow-sm">
+                        <div className="flex items-start justify-between">
+                          <div className="flex-1 min-w-0">
+                            <p className="font-semibold text-sm text-slate-800">{item.name}</p>
+                            <p className="text-xs text-gray-500">{item.quantity} · ~{item.estimatedWeightGrams}g</p>
+                          </div>
+                          <span className="text-sm font-bold text-pink-600 flex-shrink-0 ml-2">{item.calories} kcal</span>
+                        </div>
+                        <div className="flex gap-3 mt-2 text-xs text-gray-400">
+                          <span>P: {item.proteinGram}g</span>
+                          <span>C: {item.carbsGram}g</span>
+                          <span>F: {item.fatGram}g</span>
+                        </div>
+                      </div>
+                    ))}
+                  </div>
+                </div>
+              )}
+
               {/* Macros */}
               <div className="bg-slate-50 rounded-2xl p-4 mb-4 space-y-3">
-                <h4 className="text-sm font-semibold text-slate-700">Thành phần dinh dưỡng</h4>
+                <h4 className="text-sm font-semibold text-slate-700">Tổng thành phần dinh dưỡng</h4>
                 <MacroBar
                   label="Protein"
                   grams={scanResult.proteinGram}
@@ -321,13 +366,18 @@ export function CalorieScanner() {
 
               {/* Ingredients */}
               <div className="mb-5">
-                <h4 className="text-sm font-semibold text-slate-700 mb-2">Nguyên liệu chính</h4>
+                <h4 className="text-sm font-semibold text-slate-700 mb-2">Nguyên liệu tổng hợp</h4>
                 <div className="flex flex-wrap gap-2">
-                  {scanResult.ingredients.map((ing, i) => (
+                  {scanResult.ingredients.slice(0, 10).map((ing, i) => (
                     <span key={i} className="bg-gray-100 text-gray-600 px-3 py-1.5 rounded-full text-xs">
                       {ing}
                     </span>
                   ))}
+                  {scanResult.ingredients.length > 10 && (
+                    <span className="bg-gray-100 text-gray-400 px-3 py-1.5 rounded-full text-xs">
+                      +{scanResult.ingredients.length - 10} khác
+                    </span>
+                  )}
                 </div>
               </div>
 

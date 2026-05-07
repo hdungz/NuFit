@@ -58,6 +58,17 @@ export type WorkoutPlan = {
   sessions: WorkoutSession[];
 };
 
+export type DetectedFoodItem = {
+  name: string;
+  quantity: string;
+  estimatedWeightGrams: number;
+  calories: number;
+  proteinGram: number;
+  carbsGram: number;
+  fatGram: number;
+  ingredients: string[];
+};
+
 export type ScanResult = {
   id: string;
   foodName: string;
@@ -69,6 +80,8 @@ export type ScanResult = {
   ingredients: string[];
   image: string;
   createdAt: string;
+  items?: DetectedFoodItem[];
+  foodCount?: number;
 };
 
 export type AppData = {

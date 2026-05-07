@@ -1,5 +1,5 @@
 import { useState, useEffect, useRef, useCallback } from "react";
-import { Play, Pause, RotateCcw, AlertCircle, CheckCircle2, Camera, Timer } from "lucide-react";
+import { Play, Pause, RotateCcw, AlertCircle, CheckCircle2, Camera, Timer, SwitchCamera, Sparkles, MessageCircle } from "lucide-react";
 import type { WorkoutPlan } from "../../lib/models";
 import {
   computeWorkoutMetrics,
@@ -7,21 +7,9 @@ import {
   markTodaySession,
   toggleExerciseStatus,
 } from "../../services/workoutService";
-
-const feedbackPool = [
-  { type: "warning" as const, message: "Lưng cần thẳng hơn một chút" },
-  { type: "success" as const, message: "Tư thế tay hoàn hảo!" },
-  { type: "warning" as const, message: "Hạ thấp hông xuống thêm 5cm" },
-  { type: "success" as const, message: "Giữ nhịp thở rất tốt!" },
-  { type: "warning" as const, message: "Đầu gối không vượt quá mũi chân" },
-  { type: "success" as const, message: "Góc squat chuẩn 90 độ!" },
-  { type: "warning" as const, message: "Siết cơ bụng khi thực hiện" },
-  { type: "success" as const, message: "Phạm vi chuyển động rất tốt!" },
-  { type: "warning" as const, message: "Vai cần hạ xuống, tránh shrug" },
-  { type: "success" as const, message: "Tốc độ thực hiện ổn định!" },
-  { type: "warning" as const, message: "Chậm hơn ở giai đoạn eccentric" },
-  { type: "success" as const, message: "Core engagement tuyệt vời!" },
-];
+import { analyzeForm, type FormAnalysisResult } from "../../services/workoutAnalysisService";
+import { usePoseDetection, createCompositeImage } from "../../hooks/usePoseDetection";
+import { PoseOverlay } from "../PoseOverlay";
 
 export function WorkoutCoaching() {
   const [isWorkoutActive, setIsWorkoutActive] = useState(false);
@@ -30,30 +18,71 @@ export function WorkoutCoaching() {
   const [savingAction, setSavingAction] = useState(false);
   const [error, setError] = useState<string | null>(null);
   const [elapsedSeconds, setElapsedSeconds] = useState(0);
-  const [currentFeedback, setCurrentFeedback] = useState(feedbackPool[0]);
+  const [currentFeedback, setCurrentFeedback] = useState<FormAnalysisResult | null>(null);
   const [feedbackVisible, setFeedbackVisible] = useState(true);
   const [cameraReady, setCameraReady] = useState(false);
+  const [facingMode, setFacingMode] = useState<"user" | "environment">("user");
+  const [isAnalyzing, setIsAnalyzing] = useState(false);
+  const [aiEnabled, setAiEnabled] = useState(true);
+  const [repCount, setRepCount] = useState(0);
+  const [poseEnabled, setPoseEnabled] = useState(true);
+  const [voiceEnabled, setVoiceEnabled] = useState(true);
+  const [currentLandmarks, setCurrentLandmarks] = useState<any[] | null>(null);
+  const [videoDimensions, setVideoDimensions] = useState({ width: 640, height: 480 });
+
+  // Text-to-speech using Web Speech API
+  const speakFeedback = useCallback((text: string) => {
+    if (!voiceEnabled || !text || !window.speechSynthesis) return;
+    window.speechSynthesis.cancel();
+
+    const speak = () => {
+      const utterance = new SpeechSynthesisUtterance(text);
+      utterance.lang = "vi-VN";
+      utterance.rate = 1.0;
+      utterance.pitch = 1.0;
+      utterance.volume = 1.0;
+      const voices = window.speechSynthesis.getVoices();
+      const viVoice = voices.find(v => v.lang === "vi-VN") || voices.find(v => v.lang.startsWith("vi"));
+      if (viVoice) utterance.voice = viVoice;
+      window.speechSynthesis.speak(utterance);
+    };
+
+    // Voices may not be loaded yet on some browsers
+    if (window.speechSynthesis.getVoices().length > 0) {
+      speak();
+    } else {
+      window.speechSynthesis.onvoiceschanged = () => { speak(); };
+    }
+  }, [voiceEnabled]);
+  
+  const canvasRef = useRef<HTMLCanvasElement>(null);
 
   const videoRef = useRef<HTMLVideoElement>(null);
   const streamRef = useRef<MediaStream | null>(null);
   const timerRef = useRef<ReturnType<typeof setInterval> | null>(null);
-  const feedbackRef = useRef<ReturnType<typeof setInterval> | null>(null);
 
   // Camera
   const startCamera = useCallback(async () => {
+    // Stop existing stream before requesting a new one
+    if (streamRef.current) {
+      streamRef.current.getTracks().forEach((t) => t.stop());
+    }
     try {
       const stream = await navigator.mediaDevices.getUserMedia({
-        video: { facingMode: "user", width: { ideal: 640 }, height: { ideal: 480 } },
+        video: { facingMode, width: { ideal: 640 }, height: { ideal: 480 } },
       });
       streamRef.current = stream;
       if (videoRef.current) {
         videoRef.current.srcObject = stream;
         videoRef.current.onloadedmetadata = () => setCameraReady(true);
+        // Handle case where metadata is already available
+        if (videoRef.current.readyState >= 1) setCameraReady(true);
+        void videoRef.current.play().catch(() => {});
       }
     } catch {
       setCameraReady(false);
     }
-  }, []);
+  }, [facingMode]);
 
   const stopCamera = useCallback(() => {
     if (streamRef.current) {
@@ -61,6 +90,21 @@ export function WorkoutCoaching() {
       streamRef.current = null;
     }
   }, []);
+
+  // MediaPipe Pose Detection
+  const { isLoading: poseLoading, isPoseDetected, POSE_CONNECTIONS } = usePoseDetection({
+    enabled: poseEnabled && cameraReady,
+    videoRef,
+    onPoseDetected: (pose) => {
+      setCurrentLandmarks(pose.landmarks);
+      if (videoRef.current) {
+        setVideoDimensions({
+          width: videoRef.current.videoWidth || 640,
+          height: videoRef.current.videoHeight || 480,
+        });
+      }
+    },
+  });
 
   useEffect(() => {
     void startCamera();
@@ -88,23 +132,89 @@ export function WorkoutCoaching() {
   useEffect(() => {
     if (isWorkoutActive) {
       timerRef.current = setInterval(() => setElapsedSeconds((s) => s + 1), 1000);
-      // Dynamic feedback rotation
-      feedbackRef.current = setInterval(() => {
-        setFeedbackVisible(false);
-        setTimeout(() => {
-          setCurrentFeedback(feedbackPool[Math.floor(Math.random() * feedbackPool.length)]);
-          setFeedbackVisible(true);
-        }, 300);
-      }, 5000 + Math.random() * 3000);
     } else {
       if (timerRef.current) clearInterval(timerRef.current);
-      if (feedbackRef.current) clearInterval(feedbackRef.current);
     }
-    return () => {
-      if (timerRef.current) clearInterval(timerRef.current);
-      if (feedbackRef.current) clearInterval(feedbackRef.current);
-    };
+    return () => { if (timerRef.current) clearInterval(timerRef.current); };
   }, [isWorkoutActive]);
+
+  // AI Analysis Loop — fires next request as soon as previous finishes
+  const analyzingRef = useRef(false);
+  const aiLoopActiveRef = useRef(false);
+  
+  useEffect(() => {
+    aiLoopActiveRef.current = isWorkoutActive && aiEnabled;
+    
+    if (!aiLoopActiveRef.current) return;
+    
+    let cancelled = false;
+    
+    const loop = async () => {
+      while (!cancelled && aiLoopActiveRef.current) {
+        if (analyzingRef.current || !videoRef.current) {
+          await new Promise(r => setTimeout(r, 500));
+          continue;
+        }
+        
+        analyzingRef.current = true;
+        setIsAnalyzing(true);
+        
+        try {
+          const video = videoRef.current;
+          
+          // Create composite image with pose overlay if available
+          let imageData: string;
+          
+          if (currentLandmarks && video.videoWidth > 0) {
+            imageData = createCompositeImage(video, currentLandmarks, POSE_CONNECTIONS);
+          } else if (canvasRef.current) {
+            const canvas = canvasRef.current;
+            canvas.width = video.videoWidth || 640;
+            canvas.height = video.videoHeight || 480;
+            const ctx = canvas.getContext("2d");
+            if (ctx) {
+              ctx.drawImage(video, 0, 0);
+              imageData = canvas.toDataURL("image/jpeg", 0.5);
+            } else {
+              imageData = "";
+            }
+          } else {
+            imageData = "";
+          }
+          
+          if (imageData) {
+            const activeExercise = plan?.exercises.find(e => e.status === "active") || plan?.exercises.find(e => e.status === "pending");
+            
+            const result = await analyzeForm(imageData, activeExercise?.name);
+            
+            if (result.data && !cancelled) {
+              setCurrentFeedback(result.data);
+              setFeedbackVisible(true);
+              if (result.data.repCount && result.data.repCount > repCount) {
+                setRepCount(result.data.repCount);
+              }
+              // Read feedback aloud
+              speakFeedback(result.data.message);
+              // Auto-hide after 5 seconds
+              setTimeout(() => { if (!cancelled) setFeedbackVisible(false); }, 5000);
+            }
+          }
+        } catch (err) {
+          console.error("Analysis error:", err);
+        } finally {
+          analyzingRef.current = false;
+          setIsAnalyzing(false);
+        }
+        
+        // Wait 3s before next analysis
+        await new Promise(r => setTimeout(r, 3000));
+      }
+    };
+    
+    loop();
+    
+    return () => { cancelled = true; };
+  }, [isWorkoutActive, aiEnabled]);
 
   const metrics = plan ? computeWorkoutMetrics(plan) : null;
 
@@ -168,27 +278,40 @@ export function WorkoutCoaching() {
       <div className="px-5 pt-4">
         {/* Camera view */}
         <div className="bg-black rounded-3xl overflow-hidden shadow-xl mb-5">
-          <div className="relative aspect-[4/3]">
-            {cameraReady ? (
-              <video
-                ref={videoRef}
-                autoPlay
-                playsInline
-                muted
-                className="w-full h-full object-cover"
-                style={{ transform: "scaleX(-1)" }}
+          <div className="relative aspect-[4/3] bg-slate-800">
+            {/* Video ALWAYS in DOM — CSS hides it until ready (avoids ref=null deadlock) */}
+            <video
+              ref={videoRef}
+              autoPlay
+              playsInline
+              muted
+              className={`w-full h-full object-cover ${cameraReady ? "block" : "hidden"}`}
+              style={{ transform: facingMode === "user" ? "scaleX(-1)" : "none" }}
+            />
+
+            {/* Pose overlay */}
+            {poseEnabled && currentLandmarks && (
+              <PoseOverlay
+                landmarks={currentLandmarks}
+                connections={POSE_CONNECTIONS}
+                videoWidth={videoDimensions.width}
+                videoHeight={videoDimensions.height}
+                mirrored={facingMode === "user"}
               />
-            ) : (
-              <div className="w-full h-full flex flex-col items-center justify-center bg-slate-800">
+            )}
+
+            {/* Placeholder while camera initialises */}
+            {!cameraReady && (
+              <div className="absolute inset-0 flex flex-col items-center justify-center">
                 <Camera size={48} className="text-white/30 mb-3" />
-                <p className="text-white/50 text-sm">Camera theo dõi tư thế</p>
+                <p className="text-white/50 text-sm">Đang khởi động camera…</p>
+                <p className="text-white/30 text-xs mt-1">Vui lòng cấp quyền nếu được hỏi</p>
               </div>
             )}
 
             {/* Overlay grid lines */}
             {cameraReady && (
               <div className="absolute inset-0 pointer-events-none">
-                {/* Grid */}
                 <div className="absolute inset-4 border border-white/10 rounded-xl" />
                 <div className="absolute top-0 bottom-0 left-1/3 w-px bg-white/5" />
                 <div className="absolute top-0 bottom-0 left-2/3 w-px bg-white/5" />
@@ -197,44 +320,68 @@ export function WorkoutCoaching() {
               </div>
             )}
 
-            {/* Recording indicator */}
+            {/* Top-right: Recording indicator */}
             {isWorkoutActive && (
-              <div className="absolute top-4 right-4 bg-red-500 text-white px-3 py-1.5 rounded-full text-xs flex items-center gap-2 shadow-lg">
+              <div className="absolute top-3 right-3 bg-red-500 text-white px-3 py-1.5 rounded-full text-xs flex items-center gap-2 shadow-lg z-10">
                 <div className="w-2 h-2 bg-white rounded-full animate-pulse" />
                 ĐANG GHI
               </div>
             )}
 
-            {/* Timer overlay */}
-            <div className="absolute bottom-4 left-4 bg-black/60 backdrop-blur-sm text-white px-3 py-1.5 rounded-xl text-sm font-mono flex items-center gap-2">
-              <Timer size={14} />
-              {formatTime(elapsedSeconds)}
-            </div>
-
-            {/* Live feedback overlay */}
-            {isWorkoutActive && (
-              <div
-                className={`absolute top-4 left-4 right-16 transition-all duration-300 ${
-                  feedbackVisible ? "opacity-100 translate-y-0" : "opacity-0 -translate-y-2"
-                }`}
+            {/* Top-right (below indicator) or just Top-right: Switch Camera Button */}
+            {!isWorkoutActive && cameraReady && (
+              <button
+                onClick={() => setFacingMode(prev => prev === "user" ? "environment" : "user")}
+                className="absolute top-3 right-3 bg-black/50 hover:bg-black/70 text-white p-2 rounded-full backdrop-blur-sm transition-colors z-10"
               >
-                <div
-                  className={`flex items-center gap-2 px-3 py-2 rounded-xl text-xs ${
-                    currentFeedback.type === "success"
-                      ? "bg-emerald-500/90 text-white"
-                      : "bg-amber-500/90 text-white"
-                  }`}
-                >
-                  {currentFeedback.type === "success" ? (
-                    <CheckCircle2 size={14} />
-                  ) : (
-                    <AlertCircle size={14} />
+                <SwitchCamera size={20} />
+              </button>
+            )}
+
+            {/* Bottom-left: Timer */}
+            <div className="absolute bottom-3 left-3 z-10">
+              <div className="bg-black/60 backdrop-blur-sm text-white px-3 py-1.5 rounded-xl text-sm font-mono flex items-center gap-2">
+                <Timer size={14} />
+                {formatTime(elapsedSeconds)}
+              </div>
+            </div>
+          </div>
+
+          {/* AI Feedback Message Box */}
+          {isWorkoutActive && currentFeedback && feedbackVisible && (
+            <div className={`mx-3 -mt-1 mb-1 rounded-2xl p-3 ${
+              currentFeedback.type === "success"
+                ? "bg-emerald-50 border border-emerald-200"
+                : currentFeedback.type === "error"
+                ? "bg-red-50 border border-red-200"
+                : "bg-amber-50 border border-amber-200"
+            }`}>
+              <div className="flex items-start gap-2">
+                {currentFeedback.type === "success" ? (
+                  <CheckCircle2 size={16} className="text-emerald-500 shrink-0 mt-0.5" />
+                ) : (
+                  <AlertCircle size={16} className="text-amber-500 shrink-0 mt-0.5" />
+                )}
+                <div className="flex-1 min-w-0">
+                  <p className={`text-sm font-medium ${
+                    currentFeedback.type === "success" ? "text-emerald-700" : "text-amber-700"
+                  }`}>
+                    {currentFeedback.message}
+                  </p>
+                  {currentFeedback.suggestions && currentFeedback.suggestions.length > 0 && (
+                    <div className="mt-1 space-y-0.5">
+                      {currentFeedback.suggestions.slice(0, 2).map((s, i) => (
+                        <p key={i} className="text-xs text-gray-500">• {s}</p>
+                      ))}
+                    </div>
                   )}
-                  {currentFeedback.message}
+                  {currentFeedback.exerciseDetected && (
+                    <p className="text-[10px] text-gray-400 mt-1">Bài tập: {currentFeedback.exerciseDetected}</p>
+                  )}
                 </div>
               </div>
-            )}
-          </div>
+            </div>
+          )}
 
           {/* Controls */}
           <div className="flex items-center justify-center gap-4 py-4 bg-black/90">
@@ -352,7 +499,85 @@ export function WorkoutCoaching() {
             </div>
           </div>
         )}
+
+        {/* AI Settings Card */}
+        <div className="bg-white rounded-2xl shadow-sm p-4 mb-5">
+          <div className="flex items-center justify-between mb-3">
+            <div className="flex items-center gap-2">
+              <Sparkles size={18} className="text-orange-500" />
+              <h3 className="font-semibold text-slate-800 text-sm">AI Coaching</h3>
+            </div>
+            <button
+              onClick={() => setAiEnabled(!aiEnabled)}
+              className={`w-12 h-6 rounded-full transition-colors relative ${
+                aiEnabled ? "bg-orange-500" : "bg-gray-300"
+              }`}
+            >
+              <div
+                className={`absolute top-1 w-4 h-4 bg-white rounded-full transition-transform ${
+                  aiEnabled ? "left-7" : "left-1"
+                }`}
+              />
+            </button>
+          </div>
+          
+          {/* Pose Detection Toggle */}
+          <div className="flex items-center justify-between mb-3">
+            <div className="flex items-center gap-2">
+              <div className={`w-2 h-2 rounded-full ${isPoseDetected ? "bg-green-500" : poseLoading ? "bg-yellow-500" : "bg-red-500"}`} />
+              <span className="text-xs text-gray-600">Pose Detection</span>
+            </div>
+            <button
+              onClick={() => setPoseEnabled(!poseEnabled)}
+              className={`w-10 h-5 rounded-full transition-colors relative ${
+                poseEnabled ? "bg-blue-500" : "bg-gray-300"
+              }`}
+            >
+              <div
+                className={`absolute top-0.5 w-4 h-4 bg-white rounded-full transition-transform ${
+                  poseEnabled ? "left-5" : "left-0.5"
+                }`}
+              />
+            </button>
+          </div>
+          
+          {poseEnabled && (
+            <p className="text-[10px] text-gray-400 mb-2">
+              {isPoseDetected ? "✓ Đã phát hiện cơ thể" : poseLoading ? "⏳ Đang khởi tạo..." : "✗ Chưa phát hiện cơ thể"}
+            </p>
+          )}
+          
+          {/* Voice Toggle */}
+          <div className="flex items-center justify-between mb-3">
+            <span className="text-xs text-gray-600">🔊 Đọc thông báo</span>
+            <button
+              onClick={() => setVoiceEnabled(!voiceEnabled)}
+              className={`w-10 h-5 rounded-full transition-colors relative ${
+                voiceEnabled ? "bg-blue-500" : "bg-gray-300"
+              }`}
+            >
+              <div
+                className={`absolute top-0.5 w-4 h-4 bg-white rounded-full transition-transform ${
+                  voiceEnabled ? "left-5" : "left-0.5"
+                }`}
+              />
+            </button>
+          </div>
+          
+          {aiEnabled && (
+            <div className="text-xs text-gray-500 mt-3 border-t pt-3">
+              <div className="flex items-center gap-2">
+                <div className={`w-2 h-2 rounded-full ${isAnalyzing ? "bg-orange-500 animate-pulse" : "bg-gray-300"}`} />
+                <p>{isAnalyzing ? "Đang phân tích..." : "Sẵn sàng"}</p>
+              </div>
+              <p className="text-[10px] text-gray-400 mt-1">Chế độ liên tục · gpt-5.4 · Phân tích realtime</p>
+            </div>
+          )}
+        </div>
       </div>
+
+      {/* Hidden canvas for snapshot capture */}
+      <canvas ref={canvasRef} className="hidden" />
     </div>
   );
 }
