@@ -1,9 +1,9 @@
 import type { ApiResponse } from "../lib/models";
 import { wait } from "../lib/utils";
 
-const MIN_LATENCY = 220;
-const MAX_LATENCY = 1200;
-const TRANSIENT_ERROR_RATE = 0.08;
+const MIN_LATENCY = 100;
+const MAX_LATENCY = 400;
+const TRANSIENT_ERROR_RATE = 0.03;
 
 function randomLatency() {
   return Math.floor(Math.random() * (MAX_LATENCY - MIN_LATENCY + 1)) + MIN_LATENCY;

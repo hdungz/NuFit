@@ -9,173 +9,121 @@ export function CalendarSchedule() {
 
   const appData = readAppData();
   const workoutMetrics = computeWorkoutMetrics(appData.workoutPlan);
+
   const schedule = [
-    {
-      day: "Thứ 2",
-      date: "21/04",
-      workload: "Bận",
-      workout: "Yoga nhẹ - 15 phút",
-      intensity: "low",
-      googleEvent: "Họp team 9:00 - 17:00",
-    },
-    {
-      day: "Thứ 3",
-      date: "22/04",
-      workload: "Rảnh",
-      workout: "HIIT cao cường độ - 45 phút",
-      intensity: "high",
-      googleEvent: "Không có lịch",
-    },
-    {
-      day: "Thứ 4",
-      date: "23/04",
-      workload: "Trung bình",
-      workout: "Cardio & Core - 30 phút",
-      intensity: "medium",
-      googleEvent: "Meeting 14:00 - 15:30",
-    },
-    {
-      day: "Thứ 5",
-      date: "24/04",
-      workload: "Bận",
-      workout: "Stretching - 20 phút",
-      intensity: "low",
-      googleEvent: "Deadline dự án",
-    },
-    {
-      day: "Thứ 6",
-      date: "25/04",
-      workload: "Rảnh",
-      workout: "Full Body Workout - 50 phút",
-      intensity: "high",
-      googleEvent: "Không có lịch",
-    },
+    { day: "Thứ 2", date: "Hôm nay", workload: "Bận", workout: "Yoga nhẹ - 15 phút", intensity: "low", event: "Họp team 9:00 - 17:00" },
+    { day: "Thứ 3", date: "Ngày mai", workload: "Rảnh", workout: "HIIT cao cường độ - 45 phút", intensity: "high", event: "Không có lịch" },
+    { day: "Thứ 4", date: "", workload: "Trung bình", workout: "Cardio & Core - 30 phút", intensity: "medium", event: "Meeting 14:00 - 15:30" },
+    { day: "Thứ 5", date: "", workload: "Bận", workout: "Stretching - 20 phút", intensity: "low", event: "Deadline dự án" },
+    { day: "Thứ 6", date: "", workload: "Rảnh", workout: "Full Body Workout - 50 phút", intensity: "high", event: "Không có lịch" },
   ];
 
-  const getIntensityColor = (intensity: string) => {
-    switch (intensity) {
-      case "high":
-        return "bg-red-500";
-      case "medium":
-        return "bg-yellow-500";
-      case "low":
-        return "bg-green-500";
-      default:
-        return "bg-gray-500";
-    }
+  const intensityConfig: Record<string, { color: string; icon: typeof Zap; bg: string }> = {
+    high: { color: "text-rose-500", icon: Zap, bg: "bg-rose-500" },
+    medium: { color: "text-amber-500", icon: Clock, bg: "bg-amber-500" },
+    low: { color: "text-emerald-500", icon: Moon, bg: "bg-emerald-500" },
   };
 
-  const getIntensityIcon = (intensity: string) => {
-    switch (intensity) {
-      case "high":
-        return <Zap className="text-white" size={16} />;
-      case "medium":
-        return <Clock className="text-white" size={16} />;
-      case "low":
-        return <Moon className="text-white" size={16} />;
-      default:
-        return null;
-    }
+  const workloadColors: Record<string, string> = {
+    "Bận": "bg-rose-50 text-rose-600",
+    "Rảnh": "bg-emerald-50 text-emerald-600",
+    "Trung bình": "bg-amber-50 text-amber-600",
   };
 
   return (
-    <div className="min-h-full bg-gray-50">
-      <div className="bg-gradient-to-r from-purple-600 to-purple-700 text-white px-6 py-8">
-        <h1 className="text-2xl mb-1">Lịch tập luyện</h1>
-        <p className="text-purple-100 text-sm">Tự động điều chỉnh theo lịch trình của bạn</p>
+    <div className="min-h-full bg-slate-50">
+      <div className="bg-gradient-to-br from-purple-500 via-violet-500 to-indigo-600 px-6 pt-14 pb-6">
+        <h1 className="text-2xl font-bold text-white mb-1">Lịch tập luyện</h1>
+        <p className="text-purple-100/70 text-sm">Tự động điều chỉnh theo lịch trình</p>
       </div>
 
-      <div className="px-6 mt-6">
-        <div className="bg-white rounded-2xl shadow-lg p-4 mb-6">
-          <div className="flex items-center justify-between mb-4">
-            <h2 className="font-semibold">Tuần này</h2>
-            <div className="flex items-center gap-2 text-sm text-gray-600">
-              <CalendarIcon size={16} />
-              <span>21 - 27 Tháng 4</span>
-            </div>
-          </div>
-
-          <div className="bg-blue-50 border-l-4 border-blue-500 p-4 rounded-lg">
-            <div className="flex items-start gap-3">
-              <CalendarIcon className="text-blue-600 flex-shrink-0 mt-1" size={20} />
-              <div>
-                <p className="font-semibold text-blue-900 mb-1">Kết nối Google Calendar</p>
-                <p className="text-sm text-blue-800">
-                  AI tự động phân tích lịch trình của bạn và điều chỉnh cường độ tập luyện phù hợp cho từng ngày.
-                </p>
-              </div>
-            </div>
+      <div className="px-5 pt-4">
+        {/* Week day pills */}
+        <div className="bg-white rounded-2xl shadow-sm p-4 mb-4">
+          <div className="flex justify-between">
+            {weekDays.map((day, i) => {
+              const isToday = i === currentDay;
+              return (
+                <div
+                  key={i}
+                  className={`flex flex-col items-center gap-1 px-2 py-2 rounded-xl ${
+                    isToday ? "bg-violet-500 text-white shadow-md shadow-violet-500/30" : "text-gray-400"
+                  }`}
+                >
+                  <span className="text-[10px] font-medium">{day}</span>
+                  <span className="text-sm font-bold">
+                    {new Date(today.getFullYear(), today.getMonth(), today.getDate() - currentDay + i).getDate()}
+                  </span>
+                </div>
+              );
+            })}
           </div>
         </div>
 
-        <h2 className="text-lg mb-4">Kế hoạch tuần</h2>
-        <div className="space-y-4 mb-6">
-          {schedule.map((item, index) => (
-            <div
-              key={item.day}
-              className={`bg-white rounded-2xl shadow-lg overflow-hidden ${
-                index === 0 ? "border-2 border-purple-500" : ""
-              }`}
-            >
-              <div className="p-4">
+        {/* Google Calendar info */}
+        <div className="bg-blue-50 border border-blue-200 rounded-2xl p-4 mb-4 flex items-start gap-3">
+          <CalendarIcon className="text-blue-500 flex-shrink-0 mt-0.5" size={18} />
+          <div>
+            <p className="text-sm font-semibold text-blue-800">Google Calendar</p>
+            <p className="text-xs text-blue-600/70">AI phân tích lịch và điều chỉnh cường độ tập</p>
+          </div>
+        </div>
+
+        {/* Schedule */}
+        <h2 className="text-sm font-semibold text-slate-700 mb-3">Kế hoạch tuần</h2>
+        <div className="space-y-3 mb-5">
+          {schedule.map((item, i) => {
+            const config = intensityConfig[item.intensity] ?? intensityConfig.low;
+            const Icon = config.icon;
+            return (
+              <div
+                key={i}
+                className={`bg-white rounded-2xl shadow-sm p-4 ${i === 0 ? "border-2 border-violet-400" : ""}`}
+              >
                 <div className="flex items-start justify-between mb-3">
                   <div>
-                    <div className="flex items-center gap-2 mb-1">
-                      <h3 className="font-semibold text-lg">{item.day}</h3>
-                      {index === 0 && (
-                        <span className="bg-purple-500 text-white text-xs px-2 py-0.5 rounded-full">Hôm nay</span>
+                    <div className="flex items-center gap-2">
+                      <h3 className="font-semibold text-sm text-slate-800">{item.day}</h3>
+                      {i === 0 && (
+                        <span className="bg-violet-500 text-white text-[10px] px-2 py-0.5 rounded-full font-medium">Hôm nay</span>
                       )}
                     </div>
-                    <p className="text-sm text-gray-600">{item.date}</p>
+                    {item.date && i !== 0 && <p className="text-[10px] text-gray-400">{item.date}</p>}
                   </div>
-                  <div className={`${getIntensityColor(item.intensity)} p-2 rounded-lg`}>
-                    {getIntensityIcon(item.intensity)}
+                  <div className={`${config.bg} w-8 h-8 rounded-lg flex items-center justify-center`}>
+                    <Icon size={16} className="text-white" />
                   </div>
                 </div>
 
-                <div className="bg-gray-50 rounded-xl p-3 mb-3">
-                  <div className="flex items-center gap-2 mb-2">
-                    <CalendarIcon className="text-gray-600" size={16} />
-                    <p className="text-sm text-gray-600">Lịch Google:</p>
-                  </div>
-                  <p className="text-sm font-medium">{item.googleEvent}</p>
+                <div className="bg-slate-50 rounded-xl p-3 mb-3 flex items-center gap-2">
+                  <CalendarIcon size={14} className="text-gray-400" />
+                  <p className="text-xs text-gray-600">{item.event}</p>
                 </div>
 
                 <div className="flex items-center justify-between">
-                  <div>
-                    <p className="text-xs text-gray-600 mb-1">Bài tập đề xuất</p>
-                    <p className="font-semibold text-purple-700">{item.workout}</p>
-                  </div>
-                  <div
-                    className={`px-3 py-1 rounded-full text-xs font-medium ${
-                      item.workload === "Bận"
-                        ? "bg-red-100 text-red-700"
-                        : item.workload === "Rảnh"
-                        ? "bg-green-100 text-green-700"
-                        : "bg-yellow-100 text-yellow-700"
-                    }`}
-                  >
+                  <p className="text-sm font-medium text-violet-700">{item.workout}</p>
+                  <span className={`px-2.5 py-1 rounded-full text-[10px] font-semibold ${workloadColors[item.workload]}`}>
                     {item.workload}
-                  </div>
+                  </span>
                 </div>
               </div>
-            </div>
-          ))}
+            );
+          })}
         </div>
 
-        <div className="bg-gradient-to-r from-purple-500 to-purple-600 text-white rounded-2xl p-6 mb-6 shadow-lg">
-          <h3 className="text-lg mb-2">AI đề xuất</h3>
-          <p className="text-sm text-purple-100 mb-4">
-            Dựa trên tiến độ hiện tại, bạn đã hoàn thành {workoutMetrics.completedExercises}/{workoutMetrics.totalExercises} bài tuần này.
+        {/* AI suggestion */}
+        <div className="bg-gradient-to-r from-violet-500 to-purple-600 rounded-2xl p-5 mb-6 shadow-lg shadow-violet-500/20">
+          <h3 className="text-white font-semibold mb-2">AI đề xuất</h3>
+          <p className="text-violet-100/80 text-sm mb-3">
+            Hoàn thành {workoutMetrics.completedExercises}/{workoutMetrics.totalExercises} bài tuần này.
           </p>
-          <div className="bg-white/20 backdrop-blur-sm rounded-lg p-3">
-            <p className="text-xs text-purple-100 mb-1">Mục tiêu tuần này</p>
-            <div className="flex items-center justify-between">
-              <p className="font-semibold">{Math.min(workoutMetrics.completedSessions * 30, 200)} / 200 phút</p>
-              <p className="text-sm">{Math.min(workoutMetrics.completionRate, 100)}%</p>
+          <div className="bg-white/15 rounded-xl p-3">
+            <div className="flex justify-between items-center mb-2">
+              <span className="text-xs text-violet-200">Mục tiêu tuần</span>
+              <span className="text-xs text-white font-semibold">{Math.min(workoutMetrics.completionRate, 100)}%</span>
             </div>
-            <div className="bg-white/30 rounded-full h-2 mt-2 overflow-hidden">
-              <div className="bg-white h-full rounded-full" style={{ width: `${Math.min(workoutMetrics.completionRate, 100)}%` }} />
+            <div className="h-2 bg-white/20 rounded-full overflow-hidden">
+              <div className="h-full bg-white rounded-full" style={{ width: `${Math.min(workoutMetrics.completionRate, 100)}%` }} />
             </div>
           </div>
         </div>

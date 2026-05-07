@@ -1,29 +1,104 @@
 import { Link } from "react-router";
-import { Dumbbell, Calendar, UtensilsCrossed, Book, Camera, ChefHat, TrendingUp, Activity } from "lucide-react";
-import { ImageWithFallback } from "../ImageWithFallback";
+import { Dumbbell, ScanLine, UtensilsCrossed, Book, Calendar, ChefHat, Settings, LogOut, RotateCcw } from "lucide-react";
 import { useEffect, useState } from "react";
 import { getDashboardStats } from "../../services/dashboardService";
-import { getAuthSession, getPersonaKey, getPersonaLabel } from "../../services/authService";
+import { getAuthSession, getPersonaLabel } from "../../services/authService";
+import { useAuth } from "../../auth/AuthContext";
+import { resetAppData } from "../../lib/storage";
+
+function CircularProgress({
+  value,
+  max,
+  color,
+  size = 100,
+  strokeWidth = 8,
+  label,
+  unit,
+}: {
+  value: number;
+  max: number;
+  color: string;
+  size?: number;
+  strokeWidth?: number;
+  label: string;
+  unit: string;
+}) {
+  const radius = (size - strokeWidth) / 2;
+  const circumference = radius * 2 * Math.PI;
+  const progress = Math.min(value / max, 1);
+  const offset = circumference - progress * circumference;
+
+  return (
+    <div className="flex flex-col items-center">
+      <div className="relative" style={{ width: size, height: size }}>
+        <svg width={size} height={size} className="-rotate-90">
+          <circle
+            cx={size / 2}
+            cy={size / 2}
+            r={radius}
+            fill="none"
+            stroke="currentColor"
+            strokeWidth={strokeWidth}
+            className="text-gray-200"
+          />
+          <circle
+            cx={size / 2}
+            cy={size / 2}
+            r={radius}
+            fill="none"
+            stroke={color}
+            strokeWidth={strokeWidth}
+            strokeLinecap="round"
+            strokeDasharray={circumference}
+            strokeDashoffset={offset}
+            className="transition-all duration-1000 ease-out"
+          />
+        </svg>
+        <div className="absolute inset-0 flex flex-col items-center justify-center">
+          <span className="text-lg font-bold text-slate-800">{value}</span>
+          <span className="text-[10px] text-gray-400">{unit}</span>
+        </div>
+      </div>
+      <span className="text-xs text-gray-500 mt-2 font-medium">{label}</span>
+    </div>
+  );
+}
+
+function getGreeting(): string {
+  const hour = new Date().getHours();
+  if (hour < 12) return "Chào buổi sáng";
+  if (hour < 18) return "Chào buổi chiều";
+  return "Chào buổi tối";
+}
 
 export function Home() {
   const authSession = getAuthSession();
   const displayName = authSession?.displayName ?? "Bạn";
   const personaLabel = getPersonaLabel(authSession?.email);
-  const personaKey = getPersonaKey(authSession?.email);
-  const [quickStats, setQuickStats] = useState([
-    { label: "Calo hôm nay", value: "0 / 2,000", icon: Activity, color: "bg-blue-500" },
-    { label: "Phút tập luyện", value: "0 / 45", icon: TrendingUp, color: "bg-green-500" },
-  ]);
-  const [completionRate, setCompletionRate] = useState(0);
+  const { onLogout } = useAuth();
+  const [showSettings, setShowSettings] = useState(false);
+
+  const [stats, setStats] = useState({
+    caloriesLabel: "0 / 2,000",
+    workoutMinutesLabel: "0 / 45",
+    completionRate: 0,
+    totalCalories: 0,
+    workoutMinutes: 0,
+  });
 
   useEffect(() => {
     const load = async () => {
-      const stats = await getDashboardStats();
-      setQuickStats([
-        { label: "Calo hôm nay", value: stats.caloriesLabel, icon: Activity, color: "bg-blue-500" },
-        { label: "Phút tập luyện", value: stats.workoutMinutesLabel, icon: TrendingUp, color: "bg-green-500" },
-      ]);
-      setCompletionRate(stats.completionRate);
+      const s = await getDashboardStats();
+      // Parse calorie value from label
+      const calMatch = s.caloriesLabel.match(/^[\d,.]+/);
+      const calValue = calMatch ? parseInt(calMatch[0].replace(/\./g, "").replace(",", ""), 10) : 0;
+      const minMatch = s.workoutMinutesLabel.match(/^[\d]+/);
+      const minValue = minMatch ? parseInt(minMatch[0], 10) : 0;
+      setStats({
+        ...s,
+        totalCalories: calValue,
+        workoutMinutes: minValue,
+      });
     };
     void load();
   }, []);
@@ -31,208 +106,167 @@ export function Home() {
   const features = [
     {
       title: "Huấn luyện AI",
-      description: "Điều chỉnh dáng tập real-time",
+      desc: "Camera theo dõi tư thế",
       icon: Dumbbell,
       path: "/workout",
-      color: "bg-orange-500",
-      image: "https://images.unsplash.com/photo-1766287453739-c3ffc3f37d05?crop=entropy&cs=tinysrgb&fit=max&fm=jpg&ixid=M3w3Nzg4Nzd8MHwxfHNlYXJjaHwxfHxmaXRuZXNzJTIwd29ya291dCUyMHRyYWluaW5nfGVufDF8fHx8MTc3NjcyMjEzNHww&ixlib=rb-4.1.0&q=80&w=1080"
-    },
-    {
-      title: "Lịch tập luyện",
-      description: "Tự động điều chỉnh theo lịch trình",
-      icon: Calendar,
-      path: "/calendar",
-      color: "bg-purple-500",
-      image: "https://images.unsplash.com/photo-1573858129122-33bdb25d6950?crop=entropy&cs=tinysrgb&fit=max&fm=jpg&ixid=M3w3Nzg4Nzd8MHwxfHNlYXJjaHw0fHxmaXRuZXNzJTIwd29ya291dCUyMHRyYWluaW5nfGVufDF8fHx8MTc3NjcyMjEzNHww&ixlib=rb-4.1.0&q=80&w=1080"
-    },
-    {
-      title: "Thực đơn tuần",
-      description: "Lên kế hoạch dinh dưỡng theo tuần",
-      icon: UtensilsCrossed,
-      path: "/meal-plan",
-      color: "bg-green-500",
-      image: "https://images.unsplash.com/photo-1766415007387-e4c0a5720733?crop=entropy&cs=tinysrgb&fit=max&fm=jpg&ixid=M3w3Nzg4Nzd8MHwxfHNlYXJjaHwxfHxoZWFsdGh5JTIwdmlldG5hbWVzZSUyMGZvb2QlMjBtZWFsfGVufDF8fHx8MTc3Njc3NjMyMnww&ixlib=rb-4.1.0&q=80&w=1080"
-    },
-    {
-      title: "Nhật ký bữa ăn",
-      description: "Theo dõi & phân tích khẩu vị",
-      icon: Book,
-      path: "/food-diary",
-      color: "bg-blue-500",
-      image: "https://images.unsplash.com/photo-1640116309648-79c20583e1c9?crop=entropy&cs=tinysrgb&fit=max&fm=jpg&ixid=M3w3Nzg4Nzd8MHwxfHNlYXJjaHw1fHxoZWFsdGh5JTIwdmlldG5hbWVzZSUyMGZvb2QlMjBtZWFsfGVufDF8fHx8MTc3Njc3NjMyMnww&ixlib=rb-4.1.0&q=80&w=1080"
+      gradient: "from-orange-400 to-rose-500",
+      shadow: "shadow-orange-500/20",
     },
     {
       title: "Scan Calories",
-      description: "Chụp ảnh để phân tích dinh dưỡng",
-      icon: Camera,
+      desc: "Chụp ảnh nhận diện món",
+      icon: ScanLine,
       path: "/calorie-scanner",
-      color: "bg-pink-500",
-      image: "https://images.unsplash.com/photo-1544510806-e28d3cd4d4e6?crop=entropy&cs=tinysrgb&fit=max&fm=jpg&ixid=M3w3Nzg4Nzd8MHwxfHNlYXJjaHwyfHxoZWFsdGh5JTIwdmlldG5hbWVzZSUyMGZvb2QlMjBtZWFsfGVufDF8fHx8MTc3Njc3NjMyMnww&ixlib=rb-4.1.0&q=80&w=1080"
+      gradient: "from-pink-500 to-violet-500",
+      shadow: "shadow-pink-500/20",
     },
     {
-      title: "Công thức món Việt",
-      description: "Cá nhân hóa theo khẩu vị của bạn",
+      title: "Thực đơn tuần",
+      desc: "Kế hoạch dinh dưỡng",
+      icon: UtensilsCrossed,
+      path: "/meal-plan",
+      gradient: "from-emerald-400 to-teal-500",
+      shadow: "shadow-emerald-500/20",
+    },
+    {
+      title: "Nhật ký ăn",
+      desc: "Theo dõi bữa ăn",
+      icon: Book,
+      path: "/food-diary",
+      gradient: "from-blue-400 to-indigo-500",
+      shadow: "shadow-blue-500/20",
+    },
+    {
+      title: "Lịch tập",
+      desc: "Kế hoạch hàng tuần",
+      icon: Calendar,
+      path: "/calendar",
+      gradient: "from-purple-400 to-violet-500",
+      shadow: "shadow-purple-500/20",
+    },
+    {
+      title: "Công thức",
+      desc: "Món Việt healthy",
       icon: ChefHat,
       path: "/recipes",
-      color: "bg-yellow-500",
-      image: "https://images.unsplash.com/photo-1506267594256-7667b0040d31?crop=entropy&cs=tinysrgb&fit=max&fm=jpg&ixid=M3w3Nzg4Nzd8MHwxfHNlYXJjaHw0fHxoZWFsdGh5JTIwdmlldG5hbWVzZSUyMGZvb2QlMjBtZWFsfGVufDF8fHx8MTc3Njc3NjMyMnww&ixlib=rb-4.1.0&q=80&w=1080"
+      gradient: "from-amber-400 to-orange-500",
+      shadow: "shadow-amber-500/20",
     },
   ];
 
   return (
-    <div className="min-h-full bg-gradient-to-b from-blue-50 to-white">
-      <div className="bg-gradient-to-r from-blue-600 to-blue-700 text-white px-6 pt-12 pb-8 rounded-b-3xl shadow-lg">
-        <h1 className="text-3xl mb-2">Xin chào, {displayName}!</h1>
-        <p className="text-blue-100">
-          {personaKey === "beginner"
-            ? "Hôm nay ưu tiên tập đúng form và duy trì thói quen."
-            : personaKey === "family"
-            ? "Hôm nay ưu tiên thực đơn cân bằng cho cả gia đình."
-            : "Sẵn sàng cho ngày mới năng động"}
-        </p>
-        <div className="mt-3 inline-flex px-3 py-1.5 rounded-full bg-white/20 text-xs">{personaLabel}</div>
-      </div>
-
-      <div className="px-6 -mt-6">
-        <div className="bg-white rounded-2xl shadow-lg p-4 grid grid-cols-2 gap-4">
-          {quickStats.map((stat) => {
-            const Icon = stat.icon;
-            return (
-              <div key={stat.label} className="flex items-center gap-3">
-                <div className={`${stat.color} p-3 rounded-xl`}>
-                  <Icon className="text-white" size={20} />
-                </div>
-                <div>
-                  <p className="text-xs text-gray-600">{stat.label}</p>
-                  <p className="font-semibold text-sm">{stat.value}</p>
-                </div>
+    <div className="min-h-full bg-slate-50">
+      {/* Header */}
+      <div className="bg-gradient-to-br from-slate-900 via-blue-950 to-violet-950 px-6 pt-14 pb-20 rounded-b-[2rem]">
+        <div className="flex items-start justify-between mb-6">
+          <div>
+            <p className="text-blue-200/60 text-sm mb-1">{getGreeting()}</p>
+            <h1 className="text-2xl font-bold text-white">{displayName}</h1>
+            <span className="inline-block mt-2 px-3 py-1 rounded-full bg-white/10 text-white/70 text-xs">
+              {personaLabel}
+            </span>
+          </div>
+          <div className="relative">
+            <button
+              onClick={() => setShowSettings(!showSettings)}
+              className="w-10 h-10 rounded-full bg-white/10 flex items-center justify-center active:scale-90 transition-transform"
+            >
+              <Settings size={20} className="text-white/70" />
+            </button>
+            {showSettings && (
+              <div className="absolute right-0 top-12 bg-white rounded-2xl shadow-xl py-2 w-44 z-50">
+                <button
+                  onClick={() => {
+                    resetAppData();
+                    window.location.reload();
+                  }}
+                  className="w-full flex items-center gap-3 px-4 py-3 text-sm text-gray-700 hover:bg-gray-50 active:bg-gray-100"
+                >
+                  <RotateCcw size={16} /> Reset dữ liệu
+                </button>
+                <button
+                  onClick={onLogout}
+                  className="w-full flex items-center gap-3 px-4 py-3 text-sm text-red-600 hover:bg-red-50 active:bg-red-100"
+                >
+                  <LogOut size={16} /> Đăng xuất
+                </button>
               </div>
-            );
-          })}
-        </div>
-      </div>
-
-      <div className="px-6 mt-6">
-        <div className="bg-indigo-50 border border-indigo-200 rounded-2xl p-4 mb-6">
-          <h2 className="text-sm font-semibold text-indigo-900 mb-2">
-            {personaKey === "beginner"
-              ? "Flow demo Beginner 5 bước"
-              : personaKey === "family"
-              ? "Flow demo Family 5 bước"
-              : "Flow demo Office 5 bước"}
-          </h2>
-          <div className="grid grid-cols-1 gap-2 text-xs">
-            {personaKey === "beginner" ? (
-              <>
-                <Link to="/workout" className="bg-white rounded-lg px-3 py-2 text-indigo-800 hover:bg-indigo-100">
-                  Bước 1: Bắt đầu buổi tập và hoàn thành 1 bài
-                </Link>
-                <Link to="/meal-plan" className="bg-white rounded-lg px-3 py-2 text-indigo-800 hover:bg-indigo-100">
-                  Bước 2: Xem thực đơn hỗ trợ phục hồi
-                </Link>
-                <Link to="/chat" className="bg-white rounded-lg px-3 py-2 text-indigo-800 hover:bg-indigo-100">
-                  Bước 3: Hỏi AI về form và bữa sau tập
-                </Link>
-                <Link to="/food-diary" className="bg-white rounded-lg px-3 py-2 text-indigo-800 hover:bg-indigo-100">
-                  Bước 4: Kiểm tra nạp dinh dưỡng
-                </Link>
-                <Link to="/" className="bg-white rounded-lg px-3 py-2 text-indigo-800 hover:bg-indigo-100">
-                  Bước 5: Quay lại Home xem tiến độ
-                </Link>
-              </>
-            ) : personaKey === "family" ? (
-              <>
-                <Link to="/meal-plan" className="bg-white rounded-lg px-3 py-2 text-indigo-800 hover:bg-indigo-100">
-                  Bước 1: Xem thực đơn gia đình hôm nay
-                </Link>
-                <Link to="/food-diary" className="bg-white rounded-lg px-3 py-2 text-indigo-800 hover:bg-indigo-100">
-                  Bước 2: Kiểm tra lịch sử 7 ngày
-                </Link>
-                <Link to="/calorie-scanner" className="bg-white rounded-lg px-3 py-2 text-indigo-800 hover:bg-indigo-100">
-                  Bước 3: Quét món mới và lưu nhật ký
-                </Link>
-                <Link to="/chat" className="bg-white rounded-lg px-3 py-2 text-indigo-800 hover:bg-indigo-100">
-                  Bước 4: Xin gợi ý bữa tối ít calo
-                </Link>
-                <Link to="/" className="bg-white rounded-lg px-3 py-2 text-indigo-800 hover:bg-indigo-100">
-                  Bước 5: Quay lại Home xem KPI
-                </Link>
-              </>
-            ) : (
-              <>
-                <Link to="/calorie-scanner" className="bg-white rounded-lg px-3 py-2 text-indigo-800 hover:bg-indigo-100">
-                  Bước 1: Quét món ăn và lưu nhật ký
-                </Link>
-                <Link to="/food-diary" className="bg-white rounded-lg px-3 py-2 text-indigo-800 hover:bg-indigo-100">
-                  Bước 2: Xác nhận dữ liệu trong nhật ký
-                </Link>
-                <Link to="/chat" className="bg-white rounded-lg px-3 py-2 text-indigo-800 hover:bg-indigo-100">
-                  Bước 3: Hỏi AI coach theo dữ liệu mới
-                </Link>
-                <Link to="/workout" className="bg-white rounded-lg px-3 py-2 text-indigo-800 hover:bg-indigo-100">
-                  Bước 4: Cập nhật buổi tập
-                </Link>
-                <Link to="/" className="bg-white rounded-lg px-3 py-2 text-indigo-800 hover:bg-indigo-100">
-                  Bước 5: Quay lại Home xem KPI
-                </Link>
-              </>
             )}
           </div>
         </div>
-        <h2 className="text-xl mb-4">Tính năng</h2>
-        <div className="grid grid-cols-2 gap-4">
-          {features.map((feature) => {
-            const Icon = feature.icon;
+      </div>
+
+      {/* Stats rings - overlapping header */}
+      <div className="px-6 -mt-12">
+        <div className="bg-white rounded-3xl shadow-lg shadow-slate-200/50 p-6">
+          <div className="flex justify-around">
+            <CircularProgress
+              value={stats.totalCalories}
+              max={2000}
+              color="#3b82f6"
+              label="Calo"
+              unit="kcal"
+            />
+            <CircularProgress
+              value={stats.workoutMinutes}
+              max={45}
+              color="#10b981"
+              label="Tập luyện"
+              unit="phút"
+            />
+            <CircularProgress
+              value={stats.completionRate}
+              max={100}
+              color="#8b5cf6"
+              label="Tiến độ"
+              unit="%"
+            />
+          </div>
+        </div>
+      </div>
+
+      {/* Features grid */}
+      <div className="px-6 mt-6">
+        <h2 className="text-lg font-semibold text-slate-800 mb-4">Tính năng</h2>
+        <div className="grid grid-cols-2 gap-3">
+          {features.map((f) => {
+            const Icon = f.icon;
             return (
               <Link
-                key={feature.path}
-                to={feature.path}
-                className="bg-white rounded-2xl shadow-md overflow-hidden hover:shadow-lg transition-shadow"
+                key={f.path}
+                to={f.path}
+                className={`bg-white rounded-2xl p-4 shadow-md ${f.shadow} hover:shadow-lg active:scale-[0.97] transition-all`}
               >
-                <div className="relative h-32 overflow-hidden">
-                  <ImageWithFallback
-                    src={feature.image}
-                    alt={feature.title}
-                    className="w-full h-full object-cover"
-                  />
-                  <div className="absolute inset-0 bg-gradient-to-t from-black/60 to-transparent" />
-                  <div className={`absolute top-3 right-3 ${feature.color} p-2 rounded-lg`}>
-                    <Icon className="text-white" size={18} />
-                  </div>
+                <div className={`w-11 h-11 rounded-xl bg-gradient-to-br ${f.gradient} flex items-center justify-center mb-3 shadow-sm`}>
+                  <Icon size={22} className="text-white" />
                 </div>
-                <div className="p-4">
-                  <h3 className="font-semibold mb-1">{feature.title}</h3>
-                  <p className="text-xs text-gray-600">{feature.description}</p>
-                </div>
+                <h3 className="font-semibold text-slate-800 text-sm">{f.title}</h3>
+                <p className="text-xs text-gray-400 mt-0.5">{f.desc}</p>
               </Link>
             );
           })}
         </div>
       </div>
 
+      {/* Quick action CTA */}
       <div className="px-6 mt-6 mb-6">
-        <div className="bg-gradient-to-r from-green-500 to-green-600 text-white p-6 rounded-2xl shadow-lg">
-          <h3 className="text-xl mb-2">Mục tiêu hôm nay</h3>
-          <p className="text-sm text-green-100 mb-2">Tiến độ plan tuần của bạn hiện tại là {completionRate}%.</p>
-          <p className="text-sm text-green-100 mb-4">Luồng demo nhanh: quét món ăn -&gt; lưu nhật ký -&gt; chat xin tư vấn -&gt; cập nhật bài tập.</p>
-          <div className="flex gap-2 flex-wrap">
+        <div className="bg-gradient-to-r from-blue-500 to-violet-600 rounded-2xl p-5 shadow-lg shadow-blue-500/20">
+          <h3 className="text-white font-semibold text-lg mb-1">Bắt đầu ngay</h3>
+          <p className="text-blue-100/80 text-sm mb-4">
+            Quét món ăn, theo dõi calo, và nhận tư vấn từ AI Coach.
+          </p>
+          <div className="flex gap-2">
             <Link
               to="/calorie-scanner"
-              className="inline-block bg-white text-green-600 px-4 py-2 rounded-xl font-semibold hover:bg-green-50 transition-colors"
+              className="flex-1 bg-white text-blue-600 py-2.5 rounded-xl text-sm font-semibold text-center active:scale-95 transition-transform"
             >
               Quét món ăn
             </Link>
             <Link
               to="/chat"
-              className="inline-block bg-green-900/30 text-white px-4 py-2 rounded-xl font-semibold hover:bg-green-900/40 transition-colors"
+              className="flex-1 bg-white/20 text-white py-2.5 rounded-xl text-sm font-semibold text-center active:scale-95 transition-transform"
             >
               Chat AI Coach
-            </Link>
-            <Link
-              to="/workout"
-              className="inline-block bg-green-900/30 text-white px-4 py-2 rounded-xl font-semibold hover:bg-green-900/40 transition-colors"
-            >
-              Cập nhật tập luyện
             </Link>
           </div>
         </div>

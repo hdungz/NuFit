@@ -1,4 +1,4 @@
-import { Calendar, Pencil, Plus, Trash2, TrendingUp } from "lucide-react";
+import { Pencil, Plus, Trash2, TrendingUp, X } from "lucide-react";
 import { useEffect, useMemo, useState } from "react";
 import { ImageWithFallback } from "../ImageWithFallback";
 import type { MealEntry, MealTag } from "../../lib/models";
@@ -13,26 +13,9 @@ export function FoodDiary() {
   const [savingMeal, setSavingMeal] = useState(false);
   const [deletingMealId, setDeletingMealId] = useState<string | null>(null);
   const [dateFilter, setDateFilter] = useState<"all" | "today" | "week">("all");
+  const [showForm, setShowForm] = useState(false);
   const [form, setForm] = useState({ name: "", calories: "350", mealTag: "Trưa", date: getLocalDateKey() });
   const [editingMealId, setEditingMealId] = useState<string | null>(null);
-
-  const insights = [
-    {
-      title: "Khẩu vị yêu thích",
-      description: "Bạn thích các món Việt Nam truyền thống, đặc biệt là phở và bún",
-      color: "bg-purple-500",
-    },
-    {
-      title: "Thói quen ăn uống",
-      description: "Bạn thường ăn 3 bữa chính trong ngày, ít ăn vặt",
-      color: "bg-blue-500",
-    },
-    {
-      title: "Dinh dưỡng cân đối",
-      description: "Chế độ ăn của bạn cân bằng giữa protein, carbs và chất béo",
-      color: "bg-green-500",
-    },
-  ];
 
   const loadMeals = async () => {
     setLoading(true);
@@ -53,10 +36,10 @@ export function FoodDiary() {
 
   const filteredMeals = useMemo(() => {
     const today = getLocalDateKey();
-    if (dateFilter === "today") return meals.filter((meal) => meal.date === today);
+    if (dateFilter === "today") return meals.filter((m) => m.date === today);
     if (dateFilter === "week") {
       const weekAgo = new Date(Date.now() - 7 * 24 * 60 * 60 * 1000);
-      return meals.filter((meal) => new Date(meal.date) >= weekAgo);
+      return meals.filter((m) => new Date(m.date) >= weekAgo);
     }
     return meals;
   }, [dateFilter, meals]);
@@ -82,8 +65,7 @@ export function FoodDiary() {
       carbsGram: Math.round(Number(form.calories) * 0.12),
       fatGram: Math.round(Number(form.calories) * 0.03),
       tags: [form.mealTag as MealTag, "Việt Nam" as MealTag],
-      image:
-        "https://images.unsplash.com/photo-1544510806-e28d3cd4d4e6?crop=entropy&cs=tinysrgb&fit=max&fm=jpg&q=80&w=1080",
+      image: "",
       source: "manual" as const,
     };
     if (!payload.name || Number.isNaN(payload.calories) || payload.calories <= 0) {
@@ -102,6 +84,7 @@ export function FoodDiary() {
     setMeals(result.data);
     setEditingMealId(null);
     setForm({ ...form, name: "", calories: "350" });
+    setShowForm(false);
     setSuccessMessage(editingMealId ? "Đã cập nhật bữa ăn." : "Đã thêm bữa ăn mới.");
   };
 
@@ -118,173 +101,165 @@ export function FoodDiary() {
     setSuccessMessage("Đã xóa bữa ăn.");
   };
 
+  const CircularProgress = ({ value, max }: { value: number; max: number }) => {
+    const size = 80;
+    const strokeWidth = 7;
+    const radius = (size - strokeWidth) / 2;
+    const circumference = radius * 2 * Math.PI;
+    const progress = Math.min(value / max, 1);
+    const offset = circumference - progress * circumference;
+    return (
+      <div className="relative" style={{ width: size, height: size }}>
+        <svg width={size} height={size} className="-rotate-90">
+          <circle cx={size / 2} cy={size / 2} r={radius} fill="none" stroke="#e2e8f0" strokeWidth={strokeWidth} />
+          <circle cx={size / 2} cy={size / 2} r={radius} fill="none" stroke="#3b82f6" strokeWidth={strokeWidth} strokeLinecap="round" strokeDasharray={circumference} strokeDashoffset={offset} className="transition-all duration-700" />
+        </svg>
+        <div className="absolute inset-0 flex flex-col items-center justify-center">
+          <span className="text-sm font-bold text-slate-800">{Math.round(progress * 100)}%</span>
+        </div>
+      </div>
+    );
+  };
+
   return (
-    <div className="min-h-full bg-gray-50">
-      <div className="bg-gradient-to-r from-blue-600 to-blue-700 text-white px-6 py-8">
-        <h1 className="text-2xl mb-1">Nhật ký bữa ăn</h1>
-        <p className="text-blue-100 text-sm">Theo dõi và phân tích khẩu vị của bạn</p>
+    <div className="min-h-full bg-slate-50">
+      <div className="bg-gradient-to-br from-blue-500 via-indigo-500 to-violet-600 px-6 pt-14 pb-6">
+        <h1 className="text-2xl font-bold text-white mb-1">Nhật ký bữa ăn</h1>
+        <p className="text-blue-100/70 text-sm">Theo dõi và phân tích khẩu vị của bạn</p>
       </div>
 
-      <div className="px-6 mt-6">
-        <div className="bg-white rounded-2xl shadow-lg p-4 mb-6">
-          <div className="flex items-center justify-between mb-4">
-            <div>
-              <p className="text-sm text-gray-600 mb-1">Calo hôm nay</p>
-              <p className="text-2xl font-bold text-blue-600">{metrics.totalCalories.toLocaleString("vi-VN")} / 2,000</p>
-            </div>
-            <div className="text-right">
-              <p className="text-sm text-gray-600 mb-1">Còn lại</p>
-              <p className="text-xl font-semibold text-gray-900">{metrics.remainingCalories.toLocaleString("vi-VN")} kcal</p>
-            </div>
-          </div>
-          <div className="bg-gray-200 rounded-full h-3 overflow-hidden">
-            <div className="bg-blue-500 h-full rounded-full transition-all duration-500" style={{ width: `${metrics.progressPercent}%` }} />
-          </div>
-        </div>
-
-        <div className="bg-white rounded-2xl shadow-lg p-4 mb-6 space-y-3">
-          <div className="grid grid-cols-2 gap-3">
-            <input
-              value={form.name}
-              onChange={(event) => setForm((prev) => ({ ...prev, name: event.target.value }))}
-              placeholder="Tên món ăn"
-              className="col-span-2 bg-gray-100 rounded-xl px-3 py-2 text-sm"
-            />
-            <input
-              value={form.calories}
-              onChange={(event) => setForm((prev) => ({ ...prev, calories: event.target.value }))}
-              placeholder="Calories"
-              type="number"
-              className="bg-gray-100 rounded-xl px-3 py-2 text-sm"
-            />
-            <select
-              value={form.mealTag}
-              onChange={(event) => setForm((prev) => ({ ...prev, mealTag: event.target.value }))}
-              className="bg-gray-100 rounded-xl px-3 py-2 text-sm"
-            >
-              <option>Sáng</option>
-              <option>Trưa</option>
-              <option>Tối</option>
-              <option>Snack</option>
-            </select>
+      <div className="px-5 pt-4">
+        {/* Calorie summary */}
+        <div className="bg-white rounded-2xl shadow-sm p-4 mb-4 flex items-center gap-4">
+          <CircularProgress value={metrics.totalCalories} max={2000} />
+          <div className="flex-1">
+            <p className="text-xs text-gray-400 mb-0.5">Calo hôm nay</p>
+            <p className="text-xl font-bold text-slate-800">{metrics.totalCalories.toLocaleString("vi-VN")}</p>
+            <p className="text-xs text-gray-400">/ 2,000 kcal · Còn {metrics.remainingCalories.toLocaleString("vi-VN")}</p>
           </div>
           <button
-            onClick={() => void saveMeal()}
-            disabled={savingMeal}
-            className="w-full bg-blue-600 text-white py-3 rounded-2xl font-semibold flex items-center justify-center gap-2 shadow-lg hover:bg-blue-700 transition-colors"
+            onClick={() => { setShowForm(!showForm); setEditingMealId(null); setForm({ name: "", calories: "350", mealTag: "Trưa", date: getLocalDateKey() }); }}
+            className="w-11 h-11 rounded-xl bg-gradient-to-br from-blue-500 to-indigo-600 flex items-center justify-center shadow-lg shadow-blue-500/20 active:scale-90 transition-transform"
           >
-            <Plus size={20} />
-            {savingMeal ? "Đang lưu..." : editingMealId ? "Cập nhật bữa ăn" : "Thêm bữa ăn"}
+            {showForm ? <X size={20} className="text-white" /> : <Plus size={20} className="text-white" />}
           </button>
-          {error && <p className="text-sm text-red-600">{error}</p>}
-          {successMessage && <p className="text-sm text-green-600">{successMessage}</p>}
         </div>
 
-        <h2 className="text-lg mb-4 flex items-center gap-2">
-          <TrendingUp size={20} className="text-blue-600" />
-          Phân tích khẩu vị
-        </h2>
-        <div className="grid gap-3 mb-6">
-          {insights.map((insight, index) => (
-            <div key={index} className="bg-white rounded-2xl shadow-lg p-4 flex gap-4">
-              <div className={`${insight.color} w-12 h-12 rounded-xl flex-shrink-0`} />
-              <div>
-                <h3 className="font-semibold mb-1">{insight.title}</h3>
-                <p className="text-sm text-gray-600">{insight.description}</p>
-              </div>
+        {/* Add/edit form */}
+        {showForm && (
+          <div className="bg-white rounded-2xl shadow-sm p-4 mb-4 space-y-3">
+            <h3 className="text-sm font-semibold text-slate-700">{editingMealId ? "Sửa bữa ăn" : "Thêm bữa ăn"}</h3>
+            <input
+              value={form.name}
+              onChange={(e) => setForm((p) => ({ ...p, name: e.target.value }))}
+              placeholder="Tên món ăn"
+              className="w-full bg-slate-50 rounded-xl px-4 py-3 text-sm outline-none focus:ring-2 focus:ring-blue-500"
+            />
+            <div className="grid grid-cols-2 gap-3">
+              <input
+                value={form.calories}
+                onChange={(e) => setForm((p) => ({ ...p, calories: e.target.value }))}
+                placeholder="Calories"
+                type="number"
+                className="bg-slate-50 rounded-xl px-4 py-3 text-sm outline-none focus:ring-2 focus:ring-blue-500"
+              />
+              <select
+                value={form.mealTag}
+                onChange={(e) => setForm((p) => ({ ...p, mealTag: e.target.value }))}
+                className="bg-slate-50 rounded-xl px-4 py-3 text-sm outline-none focus:ring-2 focus:ring-blue-500"
+              >
+                <option>Sáng</option>
+                <option>Trưa</option>
+                <option>Tối</option>
+                <option>Snack</option>
+              </select>
             </div>
+            <button
+              onClick={() => void saveMeal()}
+              disabled={savingMeal}
+              className="w-full bg-gradient-to-r from-blue-500 to-indigo-600 text-white py-3 rounded-xl font-semibold active:scale-[0.97] transition-transform disabled:opacity-60"
+            >
+              {savingMeal ? "Đang lưu..." : editingMealId ? "Cập nhật" : "Thêm bữa ăn"}
+            </button>
+          </div>
+        )}
+
+        {error && <p className="text-sm text-red-500 text-center mb-3">{error}</p>}
+        {successMessage && <p className="text-sm text-emerald-500 text-center mb-3">{successMessage}</p>}
+
+        {/* Filter pills */}
+        <div className="flex gap-2 mb-4">
+          {(["all", "today", "week"] as const).map((key) => (
+            <button
+              key={key}
+              onClick={() => setDateFilter(key)}
+              className={`px-4 py-1.5 rounded-full text-xs font-medium transition-all active:scale-95 ${
+                dateFilter === key
+                  ? "bg-blue-500 text-white shadow-sm"
+                  : "bg-white text-gray-500 border border-gray-200"
+              }`}
+            >
+              {key === "all" ? "Tất cả" : key === "today" ? "Hôm nay" : "7 ngày"}
+            </button>
           ))}
         </div>
 
-        <h2 className="text-lg mb-4 flex items-center gap-2">
-          <Calendar size={20} className="text-blue-600" />
-          Lịch sử bữa ăn
-        </h2>
-        <div className="flex gap-2 mb-3">
-          {[
-            { key: "all", label: "Tất cả" },
-            { key: "today", label: "Hôm nay" },
-            { key: "week", label: "7 ngày" },
-          ].map((item) => (
-            <button
-              key={item.key}
-              onClick={() => setDateFilter(item.key as "all" | "today" | "week")}
-              className={`px-3 py-1 rounded-full text-xs ${dateFilter === item.key ? "bg-blue-600 text-white" : "bg-gray-200 text-gray-700"}`}
-            >
-              {item.label}
-            </button>
-          ))}
-        </div>
-        <div className="space-y-6 mb-6">
-          {loading && <p className="text-sm text-gray-500">Đang tải dữ liệu...</p>}
-          {!loading && error && (
-            <button onClick={() => void loadMeals()} className="px-3 py-1 rounded-lg bg-red-50 text-red-700 text-xs mb-2">
-              Thử tải lại danh sách
-            </button>
-          )}
+        {/* Meal history */}
+        <div className="space-y-5 mb-6">
+          {loading && <p className="text-sm text-gray-400 text-center">Đang tải dữ liệu...</p>}
           {groupedEntries.map(([date, dateMeals]) => {
-            const dayTotal = dateMeals.reduce((sum, meal) => sum + meal.calories, 0);
+            const dayTotal = dateMeals.reduce((sum, m) => sum + m.calories, 0);
             return (
-            <div key={date}>
-              <div className="flex items-center justify-between mb-3">
-                <h3 className="font-semibold text-gray-700">{formatDateLabel(date)}</h3>
-                <span className="text-sm text-gray-600">{dayTotal} kcal</span>
-              </div>
-              <div className="space-y-3">
-                {dateMeals.map((meal) => (
-                  <div key={meal.id} className="bg-white rounded-2xl shadow-lg overflow-hidden">
-                    <div className="flex gap-4 p-4">
-                      <div className="relative w-20 h-20 flex-shrink-0 rounded-xl overflow-hidden">
-                        <ImageWithFallback src={meal.image} alt={meal.name} className="w-full h-full object-cover" />
+              <div key={date}>
+                <div className="flex items-center justify-between mb-2">
+                  <h3 className="text-xs font-semibold text-gray-500 uppercase">{formatDateLabel(date)}</h3>
+                  <span className="text-xs text-gray-400">{dayTotal} kcal</span>
+                </div>
+                <div className="space-y-2">
+                  {dateMeals.map((meal) => (
+                    <div key={meal.id} className="bg-white rounded-2xl shadow-sm p-3 flex items-center gap-3">
+                      {meal.image ? (
+                        <div className="w-12 h-12 rounded-xl overflow-hidden flex-shrink-0">
+                          <ImageWithFallback src={meal.image} alt={meal.name} className="w-full h-full object-cover" />
+                        </div>
+                      ) : (
+                        <div className="w-12 h-12 rounded-xl bg-gradient-to-br from-blue-100 to-indigo-100 flex-shrink-0 flex items-center justify-center">
+                          <TrendingUp size={16} className="text-blue-500" />
+                        </div>
+                      )}
+                      <div className="flex-1 min-w-0">
+                        <p className="font-medium text-sm text-slate-800 truncate">{meal.name}</p>
+                        <p className="text-[10px] text-gray-400">{meal.time} · {meal.tags.join(", ")}</p>
                       </div>
-                      <div className="flex-1">
-                        <div className="flex items-start justify-between mb-2">
-                          <div>
-                            <p className="text-xs text-gray-600">{meal.time}</p>
-                            <h4 className="font-semibold">{meal.name}</h4>
-                          </div>
-                          <span className="bg-blue-100 text-blue-700 px-2 py-1 rounded-lg text-xs font-medium">
-                            {meal.calories} kcal
-                          </span>
-                        </div>
-                        <div className="flex gap-2">
-                          {meal.tags.map((tag) => (
-                            <span key={tag} className="bg-gray-100 text-gray-700 px-2 py-1 rounded-full text-xs">
-                              {tag}
-                            </span>
-                          ))}
-                        </div>
-                        <div className="mt-3 flex gap-2">
-                          <button
-                            onClick={() => {
-                              setEditingMealId(meal.id);
-                              setForm((prev) => ({
-                                ...prev,
-                                name: meal.name,
-                                calories: meal.calories.toString(),
-                                mealTag: meal.tags[0] ?? "Trưa",
-                                date: meal.date,
-                              }));
-                            }}
-                            className="text-xs bg-blue-50 text-blue-700 px-2 py-1 rounded-lg flex items-center gap-1"
-                          >
-                            <Pencil size={12} /> Sửa
-                          </button>
-                          <button
-                            onClick={() => void onDeleteMeal(meal.id)}
-                            disabled={deletingMealId === meal.id}
-                            className="text-xs bg-red-50 text-red-700 px-2 py-1 rounded-lg flex items-center gap-1"
-                          >
-                            <Trash2 size={12} /> {deletingMealId === meal.id ? "Đang xóa..." : "Xóa"}
-                          </button>
-                        </div>
+                      <div className="flex items-center gap-1 flex-shrink-0">
+                        <span className="text-sm font-semibold text-blue-600 mr-1">{meal.calories}</span>
+                        <button
+                          onClick={() => {
+                            setEditingMealId(meal.id);
+                            setForm({ name: meal.name, calories: meal.calories.toString(), mealTag: meal.tags[0] ?? "Trưa", date: meal.date });
+                            setShowForm(true);
+                          }}
+                          className="w-7 h-7 rounded-lg bg-blue-50 flex items-center justify-center active:scale-90 transition-transform"
+                        >
+                          <Pencil size={12} className="text-blue-500" />
+                        </button>
+                        <button
+                          onClick={() => void onDeleteMeal(meal.id)}
+                          disabled={deletingMealId === meal.id}
+                          className="w-7 h-7 rounded-lg bg-red-50 flex items-center justify-center active:scale-90 transition-transform"
+                        >
+                          <Trash2 size={12} className="text-red-500" />
+                        </button>
                       </div>
                     </div>
-                  </div>
-                ))}
+                  ))}
+                </div>
               </div>
-            </div>
-          )})}
+            );
+          })}
+          {!loading && groupedEntries.length === 0 && (
+            <p className="text-sm text-gray-400 text-center py-8">Chưa có dữ liệu bữa ăn</p>
+          )}
         </div>
       </div>
     </div>
