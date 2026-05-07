@@ -1,9 +1,17 @@
-import { Pencil, Plus, Trash2, TrendingUp, X } from "lucide-react";
+import { Pencil, Plus, Trash2, TrendingUp, X, Sun, CloudSun, Moon } from "lucide-react";
 import { useEffect, useMemo, useState } from "react";
 import { ImageWithFallback } from "../ImageWithFallback";
 import type { MealEntry, MealTag } from "../../lib/models";
 import { formatDateLabel, getLocalDateKey } from "../../lib/utils";
 import { addMeal, computeMealMetrics, listMeals, removeMeal, updateMeal } from "../../services/mealService";
+
+const MEAL_TYPE_ORDER = ["Sáng", "Trưa", "Tối", "Snack"] as const;
+const MEAL_TYPE_CONFIG: Record<string, { label: string; icon: typeof Sun; color: string; bg: string }> = {
+  "Sáng": { label: "Bữa sáng", icon: Sun, color: "text-amber-500", bg: "bg-amber-50" },
+  "Trưa": { label: "Bữa trưa", icon: CloudSun, color: "text-emerald-500", bg: "bg-emerald-50" },
+  "Tối": { label: "Bữa tối", icon: Moon, color: "text-violet-500", bg: "bg-violet-50" },
+  "Snack": { label: "Snack", icon: TrendingUp, color: "text-blue-500", bg: "bg-blue-50" },
+};
 
 export function FoodDiary() {
   const [meals, setMeals] = useState<MealEntry[]>([]);
@@ -14,7 +22,7 @@ export function FoodDiary() {
   const [deletingMealId, setDeletingMealId] = useState<string | null>(null);
   const [dateFilter, setDateFilter] = useState<"all" | "today" | "week">("all");
   const [showForm, setShowForm] = useState(false);
-  const [form, setForm] = useState({ name: "", calories: "350", mealTag: "Trưa", date: getLocalDateKey() });
+  const [form, setForm] = useState({ name: "", calories: "350", proteinGram: "", carbsGram: "", fatGram: "", mealTag: "Trưa", date: getLocalDateKey() });
   const [editingMealId, setEditingMealId] = useState<string | null>(null);
 
   const loadMeals = async () => {
@@ -44,26 +52,41 @@ export function FoodDiary() {
     return meals;
   }, [dateFilter, meals]);
 
-  const groupedEntries = useMemo(() => {
+  // Group by date → then by meal type
+  const groupedByDate = useMemo(() => {
     const grouped = filteredMeals.reduce<Record<string, MealEntry[]>>((acc, meal) => {
       acc[meal.date] = acc[meal.date] ? [...acc[meal.date], meal] : [meal];
       return acc;
     }, {});
-    return Object.entries(grouped).sort((a, b) => new Date(b[0]).getTime() - new Date(a[0]).getTime());
+    return Object.entries(grouped)
+      .sort((a, b) => new Date(b[0]).getTime() - new Date(a[0]).getTime())
+      .map(([date, dateMeals]) => {
+        const byMealType: Record<string, MealEntry[]> = {};
+        for (const meal of dateMeals) {
+          const mealType = meal.tags.find((t) => MEAL_TYPE_ORDER.includes(t as typeof MEAL_TYPE_ORDER[number])) || "Khác";
+          byMealType[mealType] = byMealType[mealType] ? [...byMealType[mealType], meal] : [meal];
+        }
+        const dayCalories = dateMeals.reduce((s, m) => s + m.calories, 0);
+        const dayProtein = dateMeals.reduce((s, m) => s + m.proteinGram, 0);
+        const dayCarbs = dateMeals.reduce((s, m) => s + m.carbsGram, 0);
+        const dayFat = dateMeals.reduce((s, m) => s + m.fatGram, 0);
+        return { date, byMealType, dayCalories, dayProtein, dayCarbs, dayFat };
+      });
   }, [filteredMeals]);
 
   const metrics = computeMealMetrics(meals);
 
   const saveMeal = async () => {
     if (savingMeal) return;
+    const cal = Number(form.calories);
     const payload = {
       date: form.date,
       time: new Date().toLocaleTimeString("vi-VN", { hour: "2-digit", minute: "2-digit" }),
       name: form.name.trim(),
-      calories: Number(form.calories),
-      proteinGram: Math.round(Number(form.calories) * 0.08),
-      carbsGram: Math.round(Number(form.calories) * 0.12),
-      fatGram: Math.round(Number(form.calories) * 0.03),
+      calories: cal,
+      proteinGram: form.proteinGram ? Number(form.proteinGram) : Math.round(cal * 0.08),
+      carbsGram: form.carbsGram ? Number(form.carbsGram) : Math.round(cal * 0.12),
+      fatGram: form.fatGram ? Number(form.fatGram) : Math.round(cal * 0.03),
       tags: [form.mealTag as MealTag, "Việt Nam" as MealTag],
       image: "",
       source: "manual" as const,
@@ -83,7 +106,7 @@ export function FoodDiary() {
     }
     setMeals(result.data);
     setEditingMealId(null);
-    setForm({ ...form, name: "", calories: "350" });
+    setForm({ ...form, name: "", calories: "350", proteinGram: "", carbsGram: "", fatGram: "" });
     setShowForm(false);
     setSuccessMessage(editingMealId ? "Đã cập nhật bữa ăn." : "Đã thêm bữa ăn mới.");
   };
@@ -136,9 +159,14 @@ export function FoodDiary() {
             <p className="text-xs text-gray-400 mb-0.5">Calo hôm nay</p>
             <p className="text-xl font-bold text-slate-800">{metrics.totalCalories.toLocaleString("vi-VN")}</p>
             <p className="text-xs text-gray-400">/ 2,000 kcal · Còn {metrics.remainingCalories.toLocaleString("vi-VN")}</p>
+            <div className="flex gap-3 mt-1.5 text-[10px] text-gray-400">
+              <span>P: {metrics.totalProtein}g</span>
+              <span>C: {metrics.totalCarbs}g</span>
+              <span>F: {metrics.totalFat}g</span>
+            </div>
           </div>
           <button
-            onClick={() => { setShowForm(!showForm); setEditingMealId(null); setForm({ name: "", calories: "350", mealTag: "Trưa", date: getLocalDateKey() }); }}
+            onClick={() => { setShowForm(!showForm); setEditingMealId(null); setForm({ name: "", calories: "350", proteinGram: "", carbsGram: "", fatGram: "", mealTag: "Trưa", date: getLocalDateKey() }); }}
             className="w-11 h-11 rounded-xl bg-gradient-to-br from-blue-500 to-indigo-600 flex items-center justify-center shadow-lg shadow-blue-500/20 active:scale-90 transition-transform"
           >
             {showForm ? <X size={20} className="text-white" /> : <Plus size={20} className="text-white" />}
@@ -174,6 +202,29 @@ export function FoodDiary() {
                 <option>Snack</option>
               </select>
             </div>
+            <div className="grid grid-cols-3 gap-2">
+              <input
+                value={form.proteinGram}
+                onChange={(e) => setForm((p) => ({ ...p, proteinGram: e.target.value }))}
+                placeholder="Protein (g)"
+                type="number"
+                className="bg-slate-50 rounded-xl px-3 py-2.5 text-xs outline-none focus:ring-2 focus:ring-blue-500"
+              />
+              <input
+                value={form.carbsGram}
+                onChange={(e) => setForm((p) => ({ ...p, carbsGram: e.target.value }))}
+                placeholder="Carbs (g)"
+                type="number"
+                className="bg-slate-50 rounded-xl px-3 py-2.5 text-xs outline-none focus:ring-2 focus:ring-blue-500"
+              />
+              <input
+                value={form.fatGram}
+                onChange={(e) => setForm((p) => ({ ...p, fatGram: e.target.value }))}
+                placeholder="Fat (g)"
+                type="number"
+                className="bg-slate-50 rounded-xl px-3 py-2.5 text-xs outline-none focus:ring-2 focus:ring-blue-500"
+              />
+            </div>
             <button
               onClick={() => void saveMeal()}
               disabled={savingMeal}
@@ -204,60 +255,137 @@ export function FoodDiary() {
           ))}
         </div>
 
-        {/* Meal history */}
-        <div className="space-y-5 mb-6">
+        {/* Meal history - grouped by day then by meal type */}
+        <div className="space-y-6 mb-6">
           {loading && <p className="text-sm text-gray-400 text-center">Đang tải dữ liệu...</p>}
-          {groupedEntries.map(([date, dateMeals]) => {
-            const dayTotal = dateMeals.reduce((sum, m) => sum + m.calories, 0);
-            return (
-              <div key={date}>
-                <div className="flex items-center justify-between mb-2">
-                  <h3 className="text-xs font-semibold text-gray-500 uppercase">{formatDateLabel(date)}</h3>
-                  <span className="text-xs text-gray-400">{dayTotal} kcal</span>
+          {groupedByDate.map(({ date, byMealType, dayCalories, dayProtein, dayCarbs, dayFat }) => (
+            <div key={date}>
+              {/* Day header with nutrition summary */}
+              <div className="bg-white rounded-2xl shadow-sm p-3 mb-2">
+                <div className="flex items-center justify-between">
+                  <h3 className="text-sm font-semibold text-slate-700">{formatDateLabel(date)}</h3>
+                  <span className="text-sm font-bold text-blue-600">{dayCalories} kcal</span>
                 </div>
-                <div className="space-y-2">
-                  {dateMeals.map((meal) => (
-                    <div key={meal.id} className="bg-white rounded-2xl shadow-sm p-3 flex items-center gap-3">
-                      {meal.image ? (
-                        <div className="w-12 h-12 rounded-xl overflow-hidden flex-shrink-0">
-                          <ImageWithFallback src={meal.image} alt={meal.name} className="w-full h-full object-cover" />
+                <div className="flex gap-4 mt-1.5">
+                  <span className="text-[10px] text-rose-500 font-medium">P: {dayProtein}g</span>
+                  <span className="text-[10px] text-amber-500 font-medium">C: {dayCarbs}g</span>
+                  <span className="text-[10px] text-blue-500 font-medium">F: {dayFat}g</span>
+                </div>
+                {/* Mini progress bar */}
+                <div className="h-1.5 bg-gray-100 rounded-full overflow-hidden mt-2">
+                  <div
+                    className="h-full bg-gradient-to-r from-blue-400 to-indigo-500 rounded-full transition-all duration-500"
+                    style={{ width: `${Math.min((dayCalories / 2000) * 100, 100)}%` }}
+                  />
+                </div>
+              </div>
+
+              {/* Meals grouped by type */}
+              <div className="space-y-2">
+                {MEAL_TYPE_ORDER.map((mealType) => {
+                  const typeMeals = byMealType[mealType];
+                  if (!typeMeals || typeMeals.length === 0) return null;
+                  const config = MEAL_TYPE_CONFIG[mealType];
+                  const Icon = config?.icon || TrendingUp;
+                  const typeCalories = typeMeals.reduce((s, m) => s + m.calories, 0);
+                  return (
+                    <div key={mealType} className="bg-white rounded-2xl shadow-sm overflow-hidden">
+                      <div className="px-3 py-2 flex items-center justify-between border-b border-gray-50">
+                        <div className="flex items-center gap-2">
+                          <div className={`w-6 h-6 rounded-lg ${config?.bg || "bg-gray-50"} flex items-center justify-center`}>
+                            <Icon size={12} className={config?.color || "text-gray-500"} />
+                          </div>
+                          <span className="text-xs font-semibold text-slate-600">{config?.label || mealType}</span>
                         </div>
-                      ) : (
-                        <div className="w-12 h-12 rounded-xl bg-gradient-to-br from-blue-100 to-indigo-100 flex-shrink-0 flex items-center justify-center">
-                          <TrendingUp size={16} className="text-blue-500" />
-                        </div>
-                      )}
-                      <div className="flex-1 min-w-0">
-                        <p className="font-medium text-sm text-slate-800 truncate">{meal.name}</p>
-                        <p className="text-[10px] text-gray-400">{meal.time} · {meal.tags.join(", ")}</p>
+                        <span className={`text-xs font-medium ${config?.color || "text-gray-500"}`}>{typeCalories} kcal</span>
                       </div>
-                      <div className="flex items-center gap-1 flex-shrink-0">
-                        <span className="text-sm font-semibold text-blue-600 mr-1">{meal.calories}</span>
-                        <button
-                          onClick={() => {
-                            setEditingMealId(meal.id);
-                            setForm({ name: meal.name, calories: meal.calories.toString(), mealTag: meal.tags[0] ?? "Trưa", date: meal.date });
-                            setShowForm(true);
-                          }}
-                          className="w-7 h-7 rounded-lg bg-blue-50 flex items-center justify-center active:scale-90 transition-transform"
-                        >
-                          <Pencil size={12} className="text-blue-500" />
-                        </button>
-                        <button
-                          onClick={() => void onDeleteMeal(meal.id)}
-                          disabled={deletingMealId === meal.id}
-                          className="w-7 h-7 rounded-lg bg-red-50 flex items-center justify-center active:scale-90 transition-transform"
-                        >
-                          <Trash2 size={12} className="text-red-500" />
-                        </button>
+                      <div className="divide-y divide-gray-50">
+                        {typeMeals.map((meal) => (
+                          <div key={meal.id} className="px-3 py-2.5 flex items-center gap-3">
+                            {meal.image ? (
+                              <div className="w-10 h-10 rounded-lg overflow-hidden flex-shrink-0">
+                                <ImageWithFallback src={meal.image} alt={meal.name} className="w-full h-full object-cover" />
+                              </div>
+                            ) : (
+                              <div className={`w-10 h-10 rounded-lg ${config?.bg || "bg-gray-50"} flex-shrink-0 flex items-center justify-center`}>
+                                <Icon size={14} className={config?.color || "text-gray-400"} />
+                              </div>
+                            )}
+                            <div className="flex-1 min-w-0">
+                              <p className="font-medium text-sm text-slate-800 truncate">{meal.name}</p>
+                              <p className="text-[10px] text-gray-400">{meal.time} · P:{meal.proteinGram}g C:{meal.carbsGram}g F:{meal.fatGram}g</p>
+                            </div>
+                            <div className="flex items-center gap-1 flex-shrink-0">
+                              <span className="text-xs font-semibold text-blue-600 mr-0.5">{meal.calories}</span>
+                              <button
+                                onClick={() => {
+                                  setEditingMealId(meal.id);
+                                  setForm({
+                                    name: meal.name,
+                                    calories: meal.calories.toString(),
+                                    proteinGram: meal.proteinGram.toString(),
+                                    carbsGram: meal.carbsGram.toString(),
+                                    fatGram: meal.fatGram.toString(),
+                                    mealTag: meal.tags[0] ?? "Trưa",
+                                    date: meal.date,
+                                  });
+                                  setShowForm(true);
+                                }}
+                                className="w-6 h-6 rounded-md bg-blue-50 flex items-center justify-center active:scale-90 transition-transform"
+                              >
+                                <Pencil size={10} className="text-blue-500" />
+                              </button>
+                              <button
+                                onClick={() => void onDeleteMeal(meal.id)}
+                                disabled={deletingMealId === meal.id}
+                                className="w-6 h-6 rounded-md bg-red-50 flex items-center justify-center active:scale-90 transition-transform"
+                              >
+                                <Trash2 size={10} className="text-red-500" />
+                              </button>
+                            </div>
+                          </div>
+                        ))}
+                      </div>
+                    </div>
+                  );
+                })}
+                {/* Meals without a recognized meal type tag */}
+                {Object.entries(byMealType)
+                  .filter(([key]) => !MEAL_TYPE_ORDER.includes(key as typeof MEAL_TYPE_ORDER[number]))
+                  .map(([key, typeMeals]) => (
+                    <div key={key} className="bg-white rounded-2xl shadow-sm overflow-hidden">
+                      <div className="px-3 py-2 flex items-center gap-2 border-b border-gray-50">
+                        <span className="text-xs font-semibold text-slate-600">{key}</span>
+                      </div>
+                      <div className="divide-y divide-gray-50">
+                        {typeMeals.map((meal) => (
+                          <div key={meal.id} className="px-3 py-2.5 flex items-center gap-3">
+                            <div className="w-10 h-10 rounded-lg bg-gray-50 flex-shrink-0 flex items-center justify-center">
+                              <TrendingUp size={14} className="text-gray-400" />
+                            </div>
+                            <div className="flex-1 min-w-0">
+                              <p className="font-medium text-sm text-slate-800 truncate">{meal.name}</p>
+                              <p className="text-[10px] text-gray-400">{meal.time} · P:{meal.proteinGram}g C:{meal.carbsGram}g F:{meal.fatGram}g</p>
+                            </div>
+                            <div className="flex items-center gap-1 flex-shrink-0">
+                              <span className="text-xs font-semibold text-blue-600">{meal.calories}</span>
+                              <button
+                                onClick={() => void onDeleteMeal(meal.id)}
+                                disabled={deletingMealId === meal.id}
+                                className="w-6 h-6 rounded-md bg-red-50 flex items-center justify-center active:scale-90 transition-transform"
+                              >
+                                <Trash2 size={10} className="text-red-500" />
+                              </button>
+                            </div>
+                          </div>
+                        ))}
                       </div>
                     </div>
                   ))}
-                </div>
               </div>
-            );
-          })}
-          {!loading && groupedEntries.length === 0 && (
+            </div>
+          ))}
+          {!loading && groupedByDate.length === 0 && (
             <p className="text-sm text-gray-400 text-center py-8">Chưa có dữ liệu bữa ăn</p>
           )}
         </div>

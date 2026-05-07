@@ -1,8 +1,9 @@
-import { Send, Bot, User, Sparkles } from "lucide-react";
+import { Send, Bot, User, Sparkles, CalendarCheck, CheckCircle2 } from "lucide-react";
 import ReactMarkdown from "react-markdown";
 import { useEffect, useRef, useState } from "react";
 import { formatClock } from "../../lib/utils";
-import { getChatMessages, sendChatMessage } from "../../services/chatService";
+import { getChatMessages, sendChatMessage, parseMealPlanFromMessage, stripMealPlanJson } from "../../services/chatService";
+import { replaceMealPlanForDates } from "../../services/mealPlanService";
 import type { ChatMessage } from "../../lib/models";
 import { getAuthSession, getPersonaKey } from "../../services/authService";
 
@@ -13,6 +14,8 @@ export function ChatSupport() {
   const [sending, setSending] = useState(false);
   const [error, setError] = useState<string | null>(null);
   const [inputValue, setInputValue] = useState("");
+  const [savingPlan, setSavingPlan] = useState(false);
+  const [savedPlanMsgIds, setSavedPlanMsgIds] = useState<Set<string>>(new Set());
   const scrollRef = useRef<HTMLDivElement>(null);
 
   const quickReplies =
@@ -107,12 +110,40 @@ export function ChatSupport() {
               >
                 {msg.role === "bot" ? (
                   <div className="prose prose-sm prose-slate max-w-none [&>p]:my-1 [&>ul]:my-1 [&>ol]:my-1 [&>h1]:text-base [&>h2]:text-sm [&>h3]:text-sm [&>h1]:font-bold [&>h2]:font-bold [&>h3]:font-semibold [&>ul]:pl-4 [&>ol]:pl-4 [&>li]:my-0.5 [&>hr]:my-2">
-                    <ReactMarkdown>{msg.content}</ReactMarkdown>
+                    <ReactMarkdown>{stripMealPlanJson(msg.content)}</ReactMarkdown>
                   </div>
                 ) : (
                   <p className="whitespace-pre-line">{msg.content}</p>
                 )}
               </div>
+              {/* Meal plan save button */}
+              {msg.role === "bot" && parseMealPlanFromMessage(msg.content) && (
+                <button
+                  onClick={async () => {
+                    const entries = parseMealPlanFromMessage(msg.content);
+                    if (!entries || savingPlan) return;
+                    setSavingPlan(true);
+                    const dates = [...new Set(entries.map((e) => e.date))];
+                    await replaceMealPlanForDates(dates, entries);
+                    setSavingPlan(false);
+                    setSavedPlanMsgIds((prev) => new Set([...prev, msg.id]));
+                  }}
+                  disabled={savingPlan || savedPlanMsgIds.has(msg.id)}
+                  className={`mt-2 flex items-center gap-1.5 px-3 py-2 rounded-xl text-xs font-medium transition-all active:scale-95 ${
+                    savedPlanMsgIds.has(msg.id)
+                      ? "bg-emerald-50 text-emerald-600 border border-emerald-200"
+                      : "bg-indigo-50 text-indigo-600 border border-indigo-200 hover:bg-indigo-100"
+                  }`}
+                >
+                  {savedPlanMsgIds.has(msg.id) ? (
+                    <><CheckCircle2 size={14} /> Đã lưu thực đơn!</>
+                  ) : savingPlan ? (
+                    "Đang lưu..."
+                  ) : (
+                    <><CalendarCheck size={14} /> Lưu thực đơn này vào kế hoạch</>
+                  )}
+                </button>
+              )}
               <p className="text-[10px] text-gray-400 mt-1 px-1">{formatClock(msg.createdAt)}</p>
             </div>
           </div>

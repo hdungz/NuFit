@@ -1,4 +1,4 @@
-import type { ApiResponse, ChatMessage, MealEntry } from "../lib/models";
+import type { ApiResponse, ChatMessage, MealEntry, MealPlanEntry } from "../lib/models";
 import { readAppData, updateAppData } from "../lib/storage";
 import { computeMealMetrics } from "./mealService";
 import { computeWorkoutMetrics } from "./workoutService";
@@ -32,6 +32,17 @@ function buildSystemPrompt(): string {
     .slice(-7)
     .map(s => `- ${s.date}: ${s.completed ? "✓" : "✗"} ${s.durationMinutes} phút`)
     .join("\n");
+
+  // Thực đơn hiện tại
+  const currentMealPlan = data.mealPlanEntries
+    .slice(0, 21)
+    .map((m: MealPlanEntry) => `- ${m.date} [${m.mealType}]: ${m.name} (${m.calories}kcal, P${m.proteinGram}g C${m.carbsGram}g F${m.fatGram}g)`)
+    .join("\n");
+
+  // Ngày mai
+  const tomorrow = new Date();
+  tomorrow.setDate(tomorrow.getDate() + 1);
+  const tomorrowDate = getLocalDateKey(tomorrow);
 
   return `Bạn là NuFit AI Coach — huấn luyện viên cá nhân (PT) AI chuyên về dinh dưỡng và tập luyện.
 
@@ -76,13 +87,62 @@ ${exercises || "(Chưa có)"}
 ## Lịch sử buổi tập
 ${recentSessions || "(Chưa có)"}
 
+## Thực đơn hiện tại trong hệ thống
+${currentMealPlan || "(Chưa có thực đơn)"}
+
 ## Quy tắc trả lời
 - LUÔN bắt đầu bằng 1 câu động viên hoặc khen ngợi liên quan đến dữ liệu thực tế của học viên
 - Trả lời tiếng Việt, thân thiện, ngắn gọn (dưới 200 từ)
 - Gợi ý món ăn: dựa trên những gì đã ăn gần đây để tránh lặp, cân đối macro
 - Gợi ý bài tập: dựa trên plan hiện tại và tiến độ
 - Đưa ra lời khuyên cụ thể, có số liệu nếu có thể
-- Luôn kết thúc bằng 1 câu khích lệ hoặc hỏi thêm để học viên cảm thấy được quan tâm`;
+- Luôn kết thúc bằng 1 câu khích lệ hoặc hỏi thêm để học viên cảm thấy được quan tâm
+
+## QUY TẮC ĐẶC BIỆT: Lên thực đơn
+Khi người dùng yêu cầu lên thực đơn / gợi ý thực đơn / meal plan:
+1. Hiển thị thực đơn dạng đẹp cho người dùng đọc (markdown)
+2. CUỐI TIN NHẮN, thêm 1 block JSON ẩn theo format SAU (QUAN TRỌNG - phải có đúng format):
+
+<!--MEAL_PLAN_JSON:[{"date":"YYYY-MM-DD","mealType":"Sáng|Trưa|Tối","name":"Tên món","calories":number,"proteinGram":number,"carbsGram":number,"fatGram":number},...]:END_MEAL_PLAN_JSON-->
+
+- date bắt đầu từ ngày mai (${tomorrowDate})
+- Mỗi ngày có 3 bữa: Sáng, Trưa, Tối
+- Ước tính calories và macro hợp lý cho mỗi món
+- KHÔNG giải thích block JSON này, nó sẽ được hệ thống parse tự động
+- Nếu người dùng xác nhận "lên thực đơn", "ok lên đi", "đồng ý" sau khi đã thấy gợi ý → vẫn tạo lại block JSON`;
+}
+
+export function parseMealPlanFromMessage(content: string): Omit<MealPlanEntry, "id">[] | null {
+  const match = content.match(/<!--MEAL_PLAN_JSON:([\s\S]*?):END_MEAL_PLAN_JSON-->/);
+  if (!match) return null;
+  try {
+    const items = JSON.parse(match[1]) as Array<{
+      date: string;
+      mealType: string;
+      name: string;
+      calories: number;
+      proteinGram: number;
+      carbsGram: number;
+      fatGram: number;
+    }>;
+    if (!Array.isArray(items) || items.length === 0) return null;
+    return items.map((item) => ({
+      date: item.date,
+      mealType: (item.mealType as MealPlanEntry["mealType"]) || "Trưa",
+      name: item.name,
+      calories: Math.round(item.calories || 0),
+      proteinGram: Math.round(item.proteinGram || 0),
+      carbsGram: Math.round(item.carbsGram || 0),
+      fatGram: Math.round(item.fatGram || 0),
+      source: "ai" as const,
+    }));
+  } catch {
+    return null;
+  }
+}
+
+export function stripMealPlanJson(content: string): string {
+  return content.replace(/<!--MEAL_PLAN_JSON:[\s\S]*?:END_MEAL_PLAN_JSON-->/g, "").trim();
 }
 
 function buildConversationHistory(messages: ChatMessage[]): Array<{ role: string; content: string }> {

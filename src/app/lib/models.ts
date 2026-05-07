@@ -58,6 +58,18 @@ export type WorkoutPlan = {
   sessions: WorkoutSession[];
 };
 
+export type MealPlanEntry = {
+  id: string;
+  date: string;
+  mealType: "Sáng" | "Trưa" | "Tối" | "Snack";
+  name: string;
+  calories: number;
+  proteinGram: number;
+  carbsGram: number;
+  fatGram: number;
+  source: "ai" | "manual";
+};
+
 export type DetectedFoodItem = {
   name: string;
   quantity: string;
@@ -88,6 +100,7 @@ export type AppData = {
   version: number;
   chatMessages: ChatMessage[];
   mealEntries: MealEntry[];
+  mealPlanEntries: MealPlanEntry[];
   workoutPlan: WorkoutPlan;
   scanHistory: ScanResult[];
 };

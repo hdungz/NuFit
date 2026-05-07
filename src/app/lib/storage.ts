@@ -56,6 +56,7 @@ function migrateData(raw: Partial<AppData> | null | undefined): AppData {
     version: STORAGE_VERSION,
     chatMessages: raw.chatMessages ?? defaultAppData.chatMessages,
     mealEntries: raw.mealEntries ?? defaultAppData.mealEntries,
+    mealPlanEntries: (raw as AppData).mealPlanEntries ?? defaultAppData.mealPlanEntries,
     workoutPlan: raw.workoutPlan ?? defaultAppData.workoutPlan,
     scanHistory: raw.scanHistory ?? defaultAppData.scanHistory,
   };

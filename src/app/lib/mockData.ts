@@ -49,7 +49,7 @@ function buildSessions() {
   }));
 }
 
-export const STORAGE_VERSION = 2;
+export const STORAGE_VERSION = 3;
 export const STORAGE_KEY = "fitness-demo-app-data";
 
 export const mealImageMap: Record<string, string> = {
@@ -75,6 +75,7 @@ export const defaultAppData: AppData = {
   mealEntries: [
     ...buildSeedMeals(),
   ],
+  mealPlanEntries: [],
   workoutPlan: {
     id: "plan-1",
     title: "Upper Body + Cardio",
