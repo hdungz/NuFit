@@ -1,4 +1,5 @@
 import { Send, Bot, User, Sparkles } from "lucide-react";
+import ReactMarkdown from "react-markdown";
 import { useEffect, useRef, useState } from "react";
 import { formatClock } from "../../lib/utils";
 import { getChatMessages, sendChatMessage } from "../../services/chatService";
@@ -104,7 +105,13 @@ export function ChatSupport() {
                     : "bg-gradient-to-r from-indigo-500 to-violet-500 rounded-2xl rounded-tr-md text-white"
                 }`}
               >
-                <p className="whitespace-pre-line">{msg.content}</p>
+                {msg.role === "bot" ? (
+                  <div className="prose prose-sm prose-slate max-w-none [&>p]:my-1 [&>ul]:my-1 [&>ol]:my-1 [&>h1]:text-base [&>h2]:text-sm [&>h3]:text-sm [&>h1]:font-bold [&>h2]:font-bold [&>h3]:font-semibold [&>ul]:pl-4 [&>ol]:pl-4 [&>li]:my-0.5 [&>hr]:my-2">
+                    <ReactMarkdown>{msg.content}</ReactMarkdown>
+                  </div>
+                ) : (
+                  <p className="whitespace-pre-line">{msg.content}</p>
+                )}
               </div>
               <p className="text-[10px] text-gray-400 mt-1 px-1">{formatClock(msg.createdAt)}</p>
             </div>
